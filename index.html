@@ -384,11 +384,12 @@
     </div>
     <div class="modal-body">
       <div class="field">
-        <label>Default GTM Container ID</label>
-        <input id="s_gtm" placeholder="GTM-XXXXXXX" style="text-transform:uppercase;"/>
+        <label>Default GTM / GA4 Tracking ID</label>
+        <textarea id="s_gtm" placeholder="Paste GTM-XXXXXXX, G-XXXXXXXXXX, or the entire embed snippet — we'll extract the ID" rows="3"></textarea>
         <div style="font-size:12px; color:var(--muted); margin-top:6px;">
-          Auto-Detect will verify this exact ID exists on each site. Leave blank to accept any GTM tag.
+          Accepts <code>GTM-XXXXXX</code> (Tag Manager), <code>G-XXXXXXXXXX</code> (GA4 / gtag.js), or <code>UA-XXXX-X</code>. You can paste the full <code>&lt;script&gt;</code> block — the ID is auto-extracted. Leave blank to accept any tracking tag.
         </div>
+        <div id="s_gtm_extracted" style="font-size:12px; color:var(--ok); margin-top:6px;"></div>
       </div>
     </div>
     <div class="modal-footer">
@@ -545,16 +546,28 @@ function loadSettings() {
   try { settings = JSON.parse(localStorage.getItem(SETTINGS_KEY)) || { gtmId: '' }; }
   catch { settings = { gtmId: '' }; }
 }
+function extractTrackingId(raw) {
+  if (!raw) return '';
+  const m = raw.match(/(GTM-[A-Z0-9]{4,}|G-[A-Z0-9]{6,}|UA-[0-9]{4,}-[0-9]+)/i);
+  return m ? m[1].toUpperCase() : '';
+}
 function openSettings() {
   document.getElementById('s_gtm').value = settings.gtmId || '';
+  document.getElementById('s_gtm_extracted').textContent = settings.gtmId ? `Will check for: ${settings.gtmId}` : '';
   document.getElementById('settingsModal').classList.add('open');
 }
 function closeSettings() {
   document.getElementById('settingsModal').classList.remove('open');
 }
 function saveSettings() {
-  settings.gtmId = document.getElementById('s_gtm').value.trim().toUpperCase();
+  const raw = document.getElementById('s_gtm').value;
+  const id = extractTrackingId(raw);
+  settings.gtmId = id;
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  if (raw.trim() && !id) {
+    alert('Could not find a tracking ID in the input. Make sure it contains GTM-XXXX, G-XXXX, or UA-XXXX-X.');
+    return;
+  }
   closeSettings();
 }
 
@@ -938,6 +951,13 @@ if (sessionStorage.getItem(AUTH_KEY) === '1') {
 }
 document.getElementById('loginPass').addEventListener('keydown', e => {
   if (e.key === 'Enter') doLogin();
+});
+document.getElementById('s_gtm').addEventListener('input', e => {
+  const id = extractTrackingId(e.target.value);
+  const out = document.getElementById('s_gtm_extracted');
+  if (id) { out.textContent = `✓ Will check for: ${id}`; out.style.color = 'var(--ok)'; }
+  else if (e.target.value.trim()) { out.textContent = '✗ No valid ID found (need GTM-..., G-..., or UA-...)'; out.style.color = 'var(--danger)'; }
+  else { out.textContent = ''; }
 });
 </script>
 </body>

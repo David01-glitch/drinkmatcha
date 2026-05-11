@@ -53,24 +53,30 @@ $evidence = [];
 $checks['c_ssl'] = strpos($url, 'https://') === 0 && ($main['code'] === 0 || ($main['code'] >= 200 && $main['code'] < 400));
 $evidence['c_ssl'] = $checks['c_ssl'] ? 'HTTPS OK' : 'Not HTTPS or SSL error';
 
-// GTM container
-$expectedGtm = strtoupper(trim($_GET['gtm'] ?? ''));
-preg_match_all('/GTM-[A-Z0-9]{4,}/i', $html, $allGtm);
-$foundIds = array_unique(array_map('strtoupper', $allGtm[0]));
-$anyGtm = !empty($foundIds) || strpos($lower, 'googletagmanager.com') !== false;
+// GTM / GA4 container
+// Accept any input — extract the ID (GTM-XXXX or G-XXXXXXXXXX) from whatever was pasted
+$rawExpected = $_GET['gtm'] ?? '';
+$expectedId = '';
+if (preg_match('/(GTM-[A-Z0-9]{4,}|G-[A-Z0-9]{6,}|UA-[0-9]{4,}-[0-9]+)/i', $rawExpected, $em)) {
+  $expectedId = strtoupper($em[1]);
+}
 
-if ($expectedGtm) {
-  $checks['c_gtm'] = in_array($expectedGtm, $foundIds, true);
+preg_match_all('/(GTM-[A-Z0-9]{4,}|G-[A-Z0-9]{6,}|UA-[0-9]{4,}-[0-9]+)/i', $html, $allIds);
+$foundIds = array_values(array_unique(array_map('strtoupper', $allIds[0])));
+$anyTag = !empty($foundIds) || strpos($lower, 'googletagmanager.com') !== false;
+
+if ($expectedId) {
+  $checks['c_gtm'] = in_array($expectedId, $foundIds, true);
   if ($checks['c_gtm']) {
-    $evidence['c_gtm'] = "Found expected {$expectedGtm}";
+    $evidence['c_gtm'] = "Found expected {$expectedId}";
   } elseif (!empty($foundIds)) {
-    $evidence['c_gtm'] = "Expected {$expectedGtm}, found " . implode(', ', $foundIds);
+    $evidence['c_gtm'] = "Expected {$expectedId}, found " . implode(', ', $foundIds);
   } else {
-    $evidence['c_gtm'] = "Expected {$expectedGtm}, none found";
+    $evidence['c_gtm'] = "Expected {$expectedId}, none found on page";
   }
 } else {
-  $checks['c_gtm'] = $anyGtm;
-  $evidence['c_gtm'] = !empty($foundIds) ? 'Found ' . implode(', ', $foundIds) : ($anyGtm ? 'gtm.js found' : 'No GTM tag');
+  $checks['c_gtm'] = $anyTag;
+  $evidence['c_gtm'] = !empty($foundIds) ? 'Found ' . implode(', ', $foundIds) : ($anyTag ? 'gtag/gtm script found' : 'No GTM/GA tag');
 }
 
 // GTM events (dataLayer push)
@@ -117,17 +123,64 @@ function hasLink($joined, $patterns) {
   return false;
 }
 
-$checks['c_privacy'] = hasLink($linksJoined, ['/privacy/i']);
-$checks['c_terms'] = hasLink($linksJoined, ['/terms[\s\-_]?(of|&|and)?[\s\-_]?(use|service|conditions)?/i', '/\btos\b/i', '/conditions/i']);
-$checks['c_about'] = hasLink($linksJoined, ['/about/i']);
-$checks['c_contact'] = hasLink($linksJoined, ['/contact/i', '/get[\s\-_]?in[\s\-_]?touch/i']);
-$checks['c_refund'] = hasLink($linksJoined, ['/refund/i', '/return[\s\-_]?policy/i', '/shipping[\s\-_]?&?[\s\-_]?return/i']);
+// Page detection: check both (a) links on the homepage AND (b) probe common direct URLs
+$baseHost = rtrim(preg_replace('/(\?.*|#.*)$/', '', $main['url']), '/');
+$base = preg_replace('/\/[^\/]*\.[a-z]{2,5}$/i', '', $baseHost); // strip trailing /page.html
+if (!preg_match('/\/$/', $base) && parse_url($base, PHP_URL_PATH) === null) $base .= '';
 
-$evidence['c_privacy'] = $checks['c_privacy'] ? 'Privacy link found' : 'No privacy link';
-$evidence['c_terms'] = $checks['c_terms'] ? 'Terms link found' : 'No terms link';
-$evidence['c_about'] = $checks['c_about'] ? 'About link found' : 'No about link';
-$evidence['c_contact'] = $checks['c_contact'] ? 'Contact link found' : 'No contact link';
-$evidence['c_refund'] = $checks['c_refund'] ? 'Refund link found' : 'No refund link';
+function probeExists($base, $paths, $timeout = 5) {
+  foreach ($paths as $p) {
+    $u = rtrim($base, '/') . $p;
+    if (function_exists('curl_init')) {
+      $ch = curl_init($u);
+      curl_setopt_array($ch, [
+        CURLOPT_NOBODY => false,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_TIMEOUT => $timeout,
+        CURLOPT_CONNECTTIMEOUT => 4,
+        CURLOPT_USERAGENT => 'Mozilla/5.0 (compatible; MatchaDashboard/1.0)',
+        CURLOPT_SSL_VERIFYPEER => false,
+        CURLOPT_SSL_VERIFYHOST => false,
+      ]);
+      $body = curl_exec($ch);
+      $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+      curl_close($ch);
+      if ($code >= 200 && $code < 400 && $body && strlen(strip_tags($body)) > 200) {
+        return ['found' => true, 'path' => $p, 'code' => $code];
+      }
+    }
+  }
+  return ['found' => false];
+}
+
+$pageProbes = [
+  'c_privacy' => ['/privacy', '/privacy.html', '/privacy-policy', '/privacy-policy.html', '/privacypolicy.html'],
+  'c_terms' => ['/terms', '/terms.html', '/terms-of-service', '/terms-and-conditions', '/tos', '/tos.html', '/terms-conditions.html'],
+  'c_about' => ['/about', '/about.html', '/about-us', '/about-us.html', '/aboutus.html'],
+  'c_contact' => ['/contact', '/contact.html', '/contact-us', '/contact-us.html', '/contactus.html'],
+  'c_refund' => ['/refund', '/refund.html', '/refund-policy', '/refund-policy.html', '/return', '/return.html', '/return-policy', '/return-policy.html', '/shipping-and-returns.html'],
+];
+
+$linkPatterns = [
+  'c_privacy' => ['/privacy/i'],
+  'c_terms' => ['/terms[\s\-_]?(of|&|and)?[\s\-_]?(use|service|conditions)?/i', '/\btos\b/i', '/conditions/i'],
+  'c_about' => ['/about/i'],
+  'c_contact' => ['/contact/i', '/get[\s\-_]?in[\s\-_]?touch/i'],
+  'c_refund' => ['/refund/i', '/return[\s\-_]?policy/i', '/shipping[\s\-_]?&?[\s\-_]?return/i'],
+];
+
+foreach ($pageProbes as $key => $paths) {
+  $hasLinkResult = hasLink($linksJoined, $linkPatterns[$key]);
+  if ($hasLinkResult) {
+    $checks[$key] = true;
+    $evidence[$key] = 'Link found in nav';
+    continue;
+  }
+  $probe = probeExists($base, $paths);
+  $checks[$key] = $probe['found'];
+  $evidence[$key] = $probe['found'] ? "Page exists at {$probe['path']}" : 'Not found in links or common URLs';
+}
 
 // Navigation
 $hasNav = preg_match('/<nav\b/i', $html);
