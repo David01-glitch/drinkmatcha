@@ -284,9 +284,10 @@
   <header>
     <div>
       <h1>MATCHa Website Dashboard</h1>
-      <div class="sub">Track every site, GTM, and Google Ads compliance</div>
+      <div class="sub">Track every site, GTM, and Google Ads compliance · <span id="syncStatus" style="color:var(--muted);">Connecting...</span></div>
     </div>
     <div class="header-actions">
+      <button class="btn" onclick="manualRefresh()" title="Pull latest from cloud">↻ Refresh</button>
       <button class="btn" onclick="exportData()">Export</button>
       <button class="btn" onclick="document.getElementById('importFile').click()">Import</button>
       <input type="file" id="importFile" accept=".json" style="display:none" onchange="importData(event)"/>
@@ -541,8 +542,72 @@ const SETTINGS_KEY = 'matcha_settings_v1';
 const AUTH_KEY = 'matcha_auth';
 const CREDS = { user: 'drinkmatcha', pass: 'drinkmatcha' };
 
+// ---------- SUPABASE (shared storage) ----------
+const SUPABASE_URL = 'https://urpchdnffbbzurbdcftq.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_x2VaR6MMjo3bE29RUMswGA_GBVyI-eX';
+
+async function sb(path, options = {}) {
+  const res = await fetch(SUPABASE_URL + '/rest/v1' + path, {
+    ...options,
+    headers: {
+      'apikey': SUPABASE_KEY,
+      'Authorization': 'Bearer ' + SUPABASE_KEY,
+      'Content-Type': 'application/json',
+      'Prefer': options.prefer || 'return=representation',
+      ...(options.headers || {}),
+    },
+  });
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error('Supabase ' + res.status + ': ' + txt);
+  }
+  return res;
+}
+
+async function sbLoadAll() {
+  const res = await sb('/websites?select=*&order=updated.desc');
+  return await res.json();
+}
+async function sbUpsert(rec) {
+  return sb('/websites', {
+    method: 'POST',
+    prefer: 'resolution=merge-duplicates,return=minimal',
+    body: JSON.stringify(rec),
+  });
+}
+async function sbDelete(id) {
+  return sb('/websites?id=eq.' + encodeURIComponent(id), { method: 'DELETE', prefer: 'return=minimal' });
+}
+async function sbGetSetting(key) {
+  const res = await sb('/settings?key=eq.' + encodeURIComponent(key) + '&select=value');
+  const rows = await res.json();
+  return rows[0]?.value ?? null;
+}
+async function sbSetSetting(key, value) {
+  return sb('/settings', {
+    method: 'POST',
+    prefer: 'resolution=merge-duplicates,return=minimal',
+    body: JSON.stringify({ key, value, updated: new Date().toISOString() }),
+  });
+}
+
+function setSyncStatus(text, color) {
+  const el = document.getElementById('syncStatus');
+  if (!el) return;
+  el.textContent = text;
+  el.style.color = color || 'var(--muted)';
+}
+
 let settings = { gtmId: '' };
-function loadSettings() {
+async function loadSettings() {
+  try {
+    const remote = await sbGetSetting('gtmId');
+    if (remote !== null) {
+      settings.gtmId = remote;
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+      return;
+    }
+  } catch (e) { console.error('Settings load failed', e); }
   try { settings = JSON.parse(localStorage.getItem(SETTINGS_KEY)) || { gtmId: '' }; }
   catch { settings = { gtmId: '' }; }
 }
@@ -559,14 +624,21 @@ function openSettings() {
 function closeSettings() {
   document.getElementById('settingsModal').classList.remove('open');
 }
-function saveSettings() {
+async function saveSettings() {
   const raw = document.getElementById('s_gtm').value;
   const id = extractTrackingId(raw);
-  settings.gtmId = id;
-  localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
   if (raw.trim() && !id) {
     alert('Could not find a tracking ID in the input. Make sure it contains GTM-XXXX, G-XXXX, or UA-XXXX-X.');
     return;
+  }
+  settings.gtmId = id;
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  setSyncStatus('Saving settings...', 'var(--muted)');
+  try {
+    await sbSetSetting('gtmId', id);
+    setSyncStatus('✓ Settings synced', 'var(--ok)');
+  } catch (e) {
+    setSyncStatus('✗ Settings save failed: ' + e.message, 'var(--danger)');
   }
   closeSettings();
 }
@@ -607,23 +679,88 @@ function logout() {
   sessionStorage.removeItem(AUTH_KEY);
   location.reload();
 }
-function showApp() {
+async function showApp() {
   document.getElementById('login').style.display = 'none';
   document.getElementById('app').style.display = 'block';
-  loadSettings();
-  load();
+  render();
+  await loadSettings();
+  await load();
+  render();
+  // auto-refresh every 30s so other users' edits appear
+  setInterval(async () => {
+    try { await load(); render(); } catch {}
+  }, 30000);
+}
+async function manualRefresh() {
+  await load();
   render();
 }
 
 // ---------- DATA ----------
-function load() {
+async function load() {
+  setSyncStatus('Loading from cloud...', 'var(--muted)');
   try {
-    records = JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
-  } catch { records = []; }
+    const remote = await sbLoadAll();
+    // One-time migration: if cloud is empty and local cache has records, push them up
+    if (remote.length === 0) {
+      let local = [];
+      try { local = JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; } catch {}
+      if (local.length > 0) {
+        setSyncStatus('Migrating ' + local.length + ' local records to cloud...', 'var(--muted)');
+        for (const r of local) {
+          try { await sbUpsert({ ...r, updated: new Date().toISOString() }); } catch {}
+        }
+        const after = await sbLoadAll();
+        records = after.map(r => ({ ...r, checks: r.checks || {}, notes: r.notes || [] }));
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+        setSyncStatus('✓ Migrated ' + records.length + ' records', 'var(--ok)');
+        return;
+      }
+    }
+    records = remote.map(r => ({
+      ...r,
+      checks: r.checks || {},
+      notes: r.notes || [],
+    }));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+    setSyncStatus('✓ Synced · ' + new Date().toLocaleTimeString(), 'var(--ok)');
+  } catch (e) {
+    console.error(e);
+    try { records = JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; }
+    catch { records = []; }
+    setSyncStatus('⚠ Offline (using cache) — ' + e.message, 'var(--warn)');
+  }
 }
-function save() {
+
+function saveCache() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
 }
+
+async function persist(rec) {
+  saveCache();
+  setSyncStatus('Saving...', 'var(--muted)');
+  try {
+    const payload = { ...rec, updated: new Date().toISOString() };
+    await sbUpsert(payload);
+    setSyncStatus('✓ Saved · ' + new Date().toLocaleTimeString(), 'var(--ok)');
+  } catch (e) {
+    setSyncStatus('✗ Save failed: ' + e.message, 'var(--danger)');
+  }
+}
+
+async function persistDelete(id) {
+  saveCache();
+  setSyncStatus('Deleting...', 'var(--muted)');
+  try {
+    await sbDelete(id);
+    setSyncStatus('✓ Deleted · ' + new Date().toLocaleTimeString(), 'var(--ok)');
+  } catch (e) {
+    setSyncStatus('✗ Delete failed: ' + e.message, 'var(--danger)');
+  }
+}
+
+// Legacy alias for callers that still write to cache only
+function save() { saveCache(); }
 
 function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -682,15 +819,16 @@ function saveRecord() {
   } else {
     records.unshift(data);
   }
-  save();
+  persist(data);
   closeModal();
   render();
 }
 function deleteCurrent() {
   if (!editingId) return;
   if (!confirm('Delete this record?')) return;
-  records = records.filter(r => r.id !== editingId);
-  save();
+  const id = editingId;
+  records = records.filter(r => r.id !== id);
+  persistDelete(id);
   closeModal();
   render();
 }
@@ -811,10 +949,21 @@ function importData(e) {
     try {
       const data = JSON.parse(reader.result);
       if (!Array.isArray(data)) throw new Error('Invalid format');
-      if (confirm(`Import ${data.length} records? This will replace your current data.`)) {
+      if (confirm(`Import ${data.length} records? This will replace your current data and sync to cloud.`)) {
         records = data;
-        save();
+        saveCache();
         render();
+        (async () => {
+          setSyncStatus('Importing to cloud...', 'var(--muted)');
+          try {
+            for (const r of records) {
+              await sbUpsert({ ...r, updated: new Date().toISOString() });
+            }
+            setSyncStatus('✓ Imported ' + records.length + ' records', 'var(--ok)');
+          } catch (e) {
+            setSyncStatus('✗ Import failed: ' + e.message, 'var(--danger)');
+          }
+        })();
       }
     } catch (err) { alert('Invalid file: ' + err.message); }
   };
@@ -870,7 +1019,7 @@ function addNote() {
   if (!r) return;
   r.notes = r.notes || [];
   r.notes.push({ text, author, ts: Date.now() });
-  save();
+  persist(r);
   document.getElementById('n_text').value = '';
   renderNotesList();
   render();
@@ -880,7 +1029,7 @@ function deleteNote(idx) {
   if (!r || !r.notes) return;
   if (!confirm('Delete this note?')) return;
   r.notes.splice(idx, 1);
-  save();
+  persist(r);
   renderNotesList();
   render();
 }
