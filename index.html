@@ -290,6 +290,7 @@
       <button class="btn" onclick="exportData()">Export</button>
       <button class="btn" onclick="document.getElementById('importFile').click()">Import</button>
       <input type="file" id="importFile" accept=".json" style="display:none" onchange="importData(event)"/>
+      <button class="btn" onclick="openSettings()">⚙ Settings</button>
       <button class="btn primary" onclick="openModal()">+ New Website</button>
       <button class="btn" onclick="logout()">Logout</button>
     </div>
@@ -347,6 +348,29 @@
     <div id="empty" class="empty" style="display:none">
       <h3>No websites yet</h3>
       <div>Click "+ New Website" to add your first record</div>
+    </div>
+  </div>
+</div>
+
+<!-- SETTINGS MODAL -->
+<div class="modal-bg" id="settingsModal">
+  <div class="modal" style="max-width: 480px;">
+    <div class="modal-header">
+      <h2>Settings</h2>
+      <button class="icon-btn" onclick="closeSettings()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="field">
+        <label>Default GTM Container ID</label>
+        <input id="s_gtm" placeholder="GTM-XXXXXXX" style="text-transform:uppercase;"/>
+        <div style="font-size:12px; color:var(--muted); margin-top:6px;">
+          Auto-Detect will verify this exact ID exists on each site. Leave blank to accept any GTM tag.
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeSettings()">Cancel</button>
+      <button class="btn primary" onclick="saveSettings()">Save</button>
     </div>
   </div>
 </div>
@@ -489,8 +513,27 @@
 
 <script>
 const STORAGE_KEY = 'matcha_dashboard_v1';
+const SETTINGS_KEY = 'matcha_settings_v1';
 const AUTH_KEY = 'matcha_auth';
 const CREDS = { user: 'drinkmatcha', pass: 'drinkmatcha' };
+
+let settings = { gtmId: '' };
+function loadSettings() {
+  try { settings = JSON.parse(localStorage.getItem(SETTINGS_KEY)) || { gtmId: '' }; }
+  catch { settings = { gtmId: '' }; }
+}
+function openSettings() {
+  document.getElementById('s_gtm').value = settings.gtmId || '';
+  document.getElementById('settingsModal').classList.add('open');
+}
+function closeSettings() {
+  document.getElementById('settingsModal').classList.remove('open');
+}
+function saveSettings() {
+  settings.gtmId = document.getElementById('s_gtm').value.trim().toUpperCase();
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  closeSettings();
+}
 
 const ADS_CHECKS = [
   ['c_privacy', 'Privacy Policy'],
@@ -531,6 +574,7 @@ function logout() {
 function showApp() {
   document.getElementById('login').style.display = 'none';
   document.getElementById('app').style.display = 'block';
+  loadSettings();
   load();
   render();
 }
@@ -747,7 +791,8 @@ async function autoDetect() {
   status.textContent = 'Fetching site and analyzing...';
 
   try {
-    const res = await fetch('check.php?url=' + encodeURIComponent(url));
+    const gtmParam = settings.gtmId ? '&gtm=' + encodeURIComponent(settings.gtmId) : '';
+    const res = await fetch('check.php?url=' + encodeURIComponent(url) + gtmParam);
     const data = await res.json();
     if (data.error) throw new Error(data.error);
     if (!data.fetched) throw new Error('Could not fetch site (HTTP ' + data.http_code + ')');

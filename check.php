@@ -54,9 +54,24 @@ $checks['c_ssl'] = strpos($url, 'https://') === 0 && ($main['code'] === 0 || ($m
 $evidence['c_ssl'] = $checks['c_ssl'] ? 'HTTPS OK' : 'Not HTTPS or SSL error';
 
 // GTM container
-$gtmMatch = preg_match('/GTM-[A-Z0-9]{4,}/i', $html, $m);
-$checks['c_gtm'] = $gtmMatch || strpos($lower, 'googletagmanager.com') !== false;
-$evidence['c_gtm'] = $gtmMatch ? "Found {$m[0]}" : ($checks['c_gtm'] ? 'gtm.js found' : 'No GTM tag');
+$expectedGtm = strtoupper(trim($_GET['gtm'] ?? ''));
+preg_match_all('/GTM-[A-Z0-9]{4,}/i', $html, $allGtm);
+$foundIds = array_unique(array_map('strtoupper', $allGtm[0]));
+$anyGtm = !empty($foundIds) || strpos($lower, 'googletagmanager.com') !== false;
+
+if ($expectedGtm) {
+  $checks['c_gtm'] = in_array($expectedGtm, $foundIds, true);
+  if ($checks['c_gtm']) {
+    $evidence['c_gtm'] = "Found expected {$expectedGtm}";
+  } elseif (!empty($foundIds)) {
+    $evidence['c_gtm'] = "Expected {$expectedGtm}, found " . implode(', ', $foundIds);
+  } else {
+    $evidence['c_gtm'] = "Expected {$expectedGtm}, none found";
+  }
+} else {
+  $checks['c_gtm'] = $anyGtm;
+  $evidence['c_gtm'] = !empty($foundIds) ? 'Found ' . implode(', ', $foundIds) : ($anyGtm ? 'gtm.js found' : 'No GTM tag');
+}
 
 // GTM events (dataLayer push)
 $checks['c_gtm_events'] = strpos($lower, 'datalayer') !== false && (strpos($lower, 'datalayer.push') !== false || strpos($lower, 'datalayer =') !== false);
