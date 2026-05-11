@@ -935,7 +935,8 @@ async function autoDetect() {
 
     const pct = Math.round((passed / total) * 100);
     status.style.color = pct === 100 ? 'var(--ok)' : (pct >= 70 ? 'var(--warn)' : 'var(--danger)');
-    status.textContent = `Detected ${passed}/${total} items (${pct}%) — ready to go live: ${pct === 100 ? '✓ Yes' : pct >= 70 ? 'Almost — fix missing items' : 'Not ready'}`;
+    const spaNote = data.is_spa ? ` · SPA detected (scanned ${data.js_fetched?.length || 0} JS bundle${data.js_fetched?.length === 1 ? '' : 's'})` : '';
+    status.textContent = `Detected ${passed}/${total} items (${pct}%) — ${pct === 100 ? '✓ Ready' : pct >= 70 ? 'Almost — fix missing' : 'Not ready'}${spaNote}`;
   } catch (err) {
     status.style.color = 'var(--danger)';
     status.textContent = 'Error: ' + err.message;
