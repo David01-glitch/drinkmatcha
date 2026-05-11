@@ -126,7 +126,7 @@
     border-radius: 10px;
     overflow: auto;
   }
-  table { width: 100%; border-collapse: collapse; min-width: 1400px; }
+  table { width: 100%; border-collapse: collapse; min-width: 1600px; }
   th, td {
     text-align: left;
     padding: 10px 12px;
@@ -340,6 +340,7 @@
           <th>Ads Compliance</th>
           <th>Status</th>
           <th>Feedback</th>
+          <th>Team Notes</th>
           <th></th>
         </tr>
       </thead>
@@ -348,6 +349,28 @@
     <div id="empty" class="empty" style="display:none">
       <h3>No websites yet</h3>
       <div>Click "+ New Website" to add your first record</div>
+    </div>
+  </div>
+</div>
+
+<!-- NOTES MODAL -->
+<div class="modal-bg" id="notesModal">
+  <div class="modal" style="max-width: 560px;">
+    <div class="modal-header">
+      <h2>Notes — <span id="notesTitle"></span></h2>
+      <button class="icon-btn" onclick="closeNotes()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div id="notesList" style="max-height: 320px; overflow-y: auto; margin-bottom: 14px;"></div>
+      <div class="field">
+        <label>Add Note</label>
+        <input id="n_author" placeholder="Your name (optional)" style="margin-bottom: 8px;"/>
+        <textarea id="n_text" placeholder="Feedback, edits, issues..." rows="3"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeNotes()">Close</button>
+      <button class="btn primary" onclick="addNote()">+ Add Note</button>
     </div>
   </div>
 </div>
@@ -729,8 +752,17 @@ function render() {
         </td>
         <td><span class="pill ${statusClass}">${escapeHtml(r.status)}</span></td>
         <td style="max-width: 180px; font-size: 12px; color: var(--muted);">${escapeHtml(r.feedback || '-')}</td>
+        <td style="max-width: 220px; font-size: 12px;">
+          ${(r.notes && r.notes.length) ? `
+            <div style="color: var(--text);">${escapeHtml(r.notes[r.notes.length-1].text.slice(0,80))}${r.notes[r.notes.length-1].text.length>80?'…':''}</div>
+            <div style="color: var(--muted); font-size: 10px; margin-top: 2px;">
+              ${escapeHtml(r.notes[r.notes.length-1].author || 'Team')} · ${new Date(r.notes[r.notes.length-1].ts).toLocaleDateString()} · ${r.notes.length} note${r.notes.length>1?'s':''}
+            </div>
+          ` : '<span style="color: var(--muted);">No notes</span>'}
+        </td>
         <td>
           <div class="row-actions">
+            <button class="icon-btn" onclick="openNotes('${r.id}')" title="Notes">📝</button>
             <button class="icon-btn" onclick="openModal('${r.id}')" title="Edit">✎</button>
           </div>
         </td>
@@ -775,6 +807,69 @@ function importData(e) {
   };
   reader.readAsText(file);
   e.target.value = '';
+}
+
+// ---------- NOTES ----------
+let notesRecordId = null;
+function openNotes(id) {
+  notesRecordId = id;
+  const r = records.find(x => x.id === id);
+  if (!r) return;
+  document.getElementById('notesTitle').textContent = r.topic || 'Site';
+  document.getElementById('n_author').value = localStorage.getItem('matcha_note_author') || '';
+  document.getElementById('n_text').value = '';
+  renderNotesList();
+  document.getElementById('notesModal').classList.add('open');
+}
+function closeNotes() {
+  document.getElementById('notesModal').classList.remove('open');
+  notesRecordId = null;
+}
+function renderNotesList() {
+  const r = records.find(x => x.id === notesRecordId);
+  const list = document.getElementById('notesList');
+  if (!r || !r.notes || r.notes.length === 0) {
+    list.innerHTML = '<div style="color: var(--muted); font-size: 13px; text-align: center; padding: 20px;">No notes yet. Add the first one below.</div>';
+    return;
+  }
+  list.innerHTML = [...r.notes].reverse().map((n, revIdx) => {
+    const realIdx = r.notes.length - 1 - revIdx;
+    return `
+      <div style="background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 8px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+          <div style="font-size: 12px; color: var(--accent-2); font-weight: 500;">${escapeHtml(n.author || 'Team')}</div>
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <span style="font-size: 11px; color: var(--muted);">${new Date(n.ts).toLocaleString()}</span>
+            <button class="icon-btn del" onclick="deleteNote(${realIdx})" title="Delete note">🗑</button>
+          </div>
+        </div>
+        <div style="font-size: 13px; white-space: pre-wrap;">${escapeHtml(n.text)}</div>
+      </div>
+    `;
+  }).join('');
+}
+function addNote() {
+  const text = document.getElementById('n_text').value.trim();
+  if (!text) return;
+  const author = document.getElementById('n_author').value.trim();
+  if (author) localStorage.setItem('matcha_note_author', author);
+  const r = records.find(x => x.id === notesRecordId);
+  if (!r) return;
+  r.notes = r.notes || [];
+  r.notes.push({ text, author, ts: Date.now() });
+  save();
+  document.getElementById('n_text').value = '';
+  renderNotesList();
+  render();
+}
+function deleteNote(idx) {
+  const r = records.find(x => x.id === notesRecordId);
+  if (!r || !r.notes) return;
+  if (!confirm('Delete this note?')) return;
+  r.notes.splice(idx, 1);
+  save();
+  renderNotesList();
+  render();
 }
 
 // ---------- AUTO-DETECT ----------
