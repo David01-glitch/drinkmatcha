@@ -1,0 +1,738 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>MATCHa Website Dashboard</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #161a22;
+    --panel-2: #1d222d;
+    --border: #262c39;
+    --text: #e6e8ee;
+    --muted: #8b94a7;
+    --accent: #7bd389;
+    --accent-2: #4ea1ff;
+    --danger: #ff6b6b;
+    --warn: #ffb454;
+    --ok: #7bd389;
+    --pink: #ff8ab0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 14px;
+  }
+  /* Login */
+  #login {
+    position: fixed; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--bg);
+    z-index: 100;
+  }
+  .login-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 32px;
+    width: 360px;
+    box-shadow: 0 20px 60px rgba(0,0,0,.4);
+  }
+  .login-card h1 {
+    margin: 0 0 4px; font-size: 22px;
+  }
+  .login-card p { margin: 0 0 24px; color: var(--muted); font-size: 13px; }
+  .login-card input {
+    width: 100%; padding: 11px 14px; margin-bottom: 12px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-size: 14px;
+  }
+  .login-card button {
+    width: 100%; padding: 12px;
+    background: var(--accent);
+    color: #0a0f0a;
+    font-weight: 600;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+  }
+  .login-card .err { color: var(--danger); font-size: 12px; min-height: 16px; }
+
+  /* App */
+  #app { display: none; }
+  header {
+    padding: 18px 28px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+    background: var(--panel);
+  }
+  header h1 { margin: 0; font-size: 18px; font-weight: 600; }
+  header .sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .header-actions { display: flex; gap: 8px; }
+  button.btn {
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    padding: 8px 14px;
+    cursor: pointer;
+    font-size: 13px;
+  }
+  button.btn:hover { background: var(--border); }
+  button.btn.primary { background: var(--accent); color: #0a0f0a; border-color: var(--accent); font-weight: 600; }
+  button.btn.danger { color: var(--danger); }
+
+  /* Stats */
+  .stats {
+    display: grid; grid-template-columns: repeat(5, 1fr);
+    gap: 12px; padding: 20px 28px;
+  }
+  .stat {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+  }
+  .stat .label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .stat .val { font-size: 22px; font-weight: 600; margin-top: 4px; }
+
+  /* Filters */
+  .filters {
+    display: flex; gap: 10px; padding: 0 28px 14px; flex-wrap: wrap;
+  }
+  .filters input, .filters select {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 8px 12px;
+    border-radius: 7px;
+    font-size: 13px;
+  }
+  .filters input { min-width: 220px; }
+
+  /* Table */
+  .table-wrap {
+    margin: 0 28px 28px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: auto;
+  }
+  table { width: 100%; border-collapse: collapse; min-width: 1400px; }
+  th, td {
+    text-align: left;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+    font-size: 13px;
+  }
+  th {
+    background: var(--panel-2);
+    color: var(--muted);
+    font-weight: 500;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    position: sticky; top: 0;
+  }
+  tbody tr:hover { background: rgba(255,255,255,0.02); }
+  td a { color: var(--accent-2); text-decoration: none; word-break: break-all; }
+  td a:hover { text-decoration: underline; }
+  .pill {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 500;
+  }
+  .pill.heroku { background: rgba(123,211,137,0.15); color: var(--accent); }
+  .pill.aws { background: rgba(255,180,84,0.15); color: var(--warn); }
+  .pill.yes { background: rgba(123,211,137,0.15); color: var(--ok); }
+  .pill.no { background: rgba(255,107,107,0.15); color: var(--danger); }
+  .pill.partial { background: rgba(255,180,84,0.15); color: var(--warn); }
+  .pill.status-live { background: rgba(78,161,255,0.15); color: var(--accent-2); }
+  .pill.status-used-h { background: rgba(255,138,176,0.15); color: var(--pink); }
+  .pill.status-rejected { background: rgba(255,107,107,0.15); color: var(--danger); }
+  .pill.status-draft { background: rgba(139,148,167,0.15); color: var(--muted); }
+
+  .checklist-mini { display: flex; flex-direction: column; gap: 3px; font-size: 11px; }
+  .checklist-mini .ci { display: flex; align-items: center; gap: 4px; }
+  .checklist-mini .ci.ok::before { content: "✓"; color: var(--ok); }
+  .checklist-mini .ci.no::before { content: "✗"; color: var(--danger); }
+
+  .row-actions { display: flex; gap: 6px; }
+  .icon-btn {
+    background: none; border: none; cursor: pointer;
+    color: var(--muted); padding: 4px 6px; border-radius: 5px;
+    font-size: 13px;
+  }
+  .icon-btn:hover { background: var(--border); color: var(--text); }
+  .icon-btn.del:hover { color: var(--danger); }
+
+  /* Modal */
+  .modal-bg {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.6);
+    display: none;
+    align-items: center; justify-content: center;
+    z-index: 200;
+    padding: 20px;
+  }
+  .modal-bg.open { display: flex; }
+  .modal {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    width: 100%; max-width: 720px;
+    max-height: 90vh; overflow-y: auto;
+  }
+  .modal-header {
+    padding: 18px 22px;
+    border-bottom: 1px solid var(--border);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .modal-header h2 { margin: 0; font-size: 17px; }
+  .modal-body { padding: 20px 22px; }
+  .modal-footer {
+    padding: 14px 22px;
+    border-top: 1px solid var(--border);
+    display: flex; justify-content: flex-end; gap: 8px;
+  }
+  .field { margin-bottom: 14px; }
+  .field label {
+    display: block; font-size: 12px; color: var(--muted);
+    margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.4px;
+  }
+  .field input, .field select, .field textarea {
+    width: 100%;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 9px 11px;
+    border-radius: 7px;
+    font-size: 13px;
+    font-family: inherit;
+  }
+  .field textarea { resize: vertical; min-height: 60px; }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+  .checklist {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+  }
+  .checklist h3 {
+    margin: 0 0 10px; font-size: 12px; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .check-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 6px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+  }
+  .check-item:last-child { border-bottom: none; }
+  .check-item input[type=checkbox] { width: 16px; height: 16px; accent-color: var(--accent); }
+  .check-item label { font-size: 13px; flex: 1; cursor: pointer; color: var(--text); margin: 0; text-transform: none; letter-spacing: 0; }
+  .check-item .hint { color: var(--muted); font-size: 11px; }
+
+  .compliance-summary {
+    margin-top: 8px;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+  }
+  .compliance-summary.ok { background: rgba(123,211,137,0.1); color: var(--ok); }
+  .compliance-summary.warn { background: rgba(255,180,84,0.1); color: var(--warn); }
+  .compliance-summary.bad { background: rgba(255,107,107,0.1); color: var(--danger); }
+
+  .empty {
+    text-align: center; padding: 60px 20px; color: var(--muted);
+  }
+  .empty h3 { color: var(--text); margin: 0 0 6px; }
+
+  @media (max-width: 900px) {
+    .stats { grid-template-columns: repeat(2, 1fr); }
+    .grid-2 { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="login">
+  <div class="login-card">
+    <h1>MATCHa Dashboard</h1>
+    <p>Sign in to manage your websites</p>
+    <input id="loginUser" placeholder="Username" autocomplete="username"/>
+    <input id="loginPass" type="password" placeholder="Password" autocomplete="current-password"/>
+    <div class="err" id="loginErr"></div>
+    <button onclick="doLogin()">Sign In</button>
+  </div>
+</div>
+
+<!-- APP -->
+<div id="app">
+  <header>
+    <div>
+      <h1>MATCHa Website Dashboard</h1>
+      <div class="sub">Track every site, GTM, and Google Ads compliance</div>
+    </div>
+    <div class="header-actions">
+      <button class="btn" onclick="exportData()">Export</button>
+      <button class="btn" onclick="document.getElementById('importFile').click()">Import</button>
+      <input type="file" id="importFile" accept=".json" style="display:none" onchange="importData(event)"/>
+      <button class="btn primary" onclick="openModal()">+ New Website</button>
+      <button class="btn" onclick="logout()">Logout</button>
+    </div>
+  </header>
+
+  <div class="stats">
+    <div class="stat"><div class="label">Total Sites</div><div class="val" id="statTotal">0</div></div>
+    <div class="stat"><div class="label">Live</div><div class="val" id="statLive">0</div></div>
+    <div class="stat"><div class="label">GTM Updated</div><div class="val" id="statGtm">0</div></div>
+    <div class="stat"><div class="label">Ads Ready</div><div class="val" id="statAds">0</div></div>
+    <div class="stat"><div class="label">Issues</div><div class="val" id="statIssues">0</div></div>
+  </div>
+
+  <div class="filters">
+    <input id="searchInput" placeholder="Search topic, app, link..." oninput="render()"/>
+    <select id="filterPlatform" onchange="render()">
+      <option value="">All Platforms</option>
+      <option value="Heroku">Heroku</option>
+      <option value="AWS Amplify">AWS Amplify</option>
+    </select>
+    <select id="filterStatus" onchange="render()">
+      <option value="">All Status</option>
+      <option value="Live">Live</option>
+      <option value="Draft">Draft</option>
+      <option value="used-h">used-h</option>
+      <option value="Rejected">Rejected</option>
+    </select>
+    <select id="filterGtm" onchange="render()">
+      <option value="">GTM: Any</option>
+      <option value="yes">GTM: Done</option>
+      <option value="no">GTM: Missing</option>
+    </select>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Topic</th>
+          <th>Website</th>
+          <th>GitHub</th>
+          <th>App Name</th>
+          <th>Platform</th>
+          <th>Cookie</th>
+          <th>GTM</th>
+          <th>Ads Compliance</th>
+          <th>Status</th>
+          <th>Feedback</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+    <div id="empty" class="empty" style="display:none">
+      <h3>No websites yet</h3>
+      <div>Click "+ New Website" to add your first record</div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL -->
+<div class="modal-bg" id="modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 id="modalTitle">New Website</h2>
+      <button class="icon-btn" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="grid-2">
+        <div class="field">
+          <label>Date</label>
+          <input type="date" id="f_date"/>
+        </div>
+        <div class="field">
+          <label>Topic Name</label>
+          <input id="f_topic" placeholder="e.g. Nostalgia"/>
+        </div>
+      </div>
+      <div class="field">
+        <label>Website Link</label>
+        <input id="f_website" placeholder="https://..."/>
+      </div>
+      <div class="field">
+        <label>GitHub Link</label>
+        <input id="f_github" placeholder="https://github.com/..."/>
+      </div>
+      <div class="grid-2">
+        <div class="field">
+          <label>App Name (on hosting)</label>
+          <input id="f_appname" placeholder="e.g. nost-p"/>
+        </div>
+        <div class="field">
+          <label>Platform</label>
+          <select id="f_platform">
+            <option value="Heroku">Heroku</option>
+            <option value="AWS Amplify">AWS Amplify</option>
+            <option value="Other">Other</option>
+          </select>
+        </div>
+      </div>
+      <div class="grid-2">
+        <div class="field">
+          <label>Status</label>
+          <select id="f_status">
+            <option value="Draft">Draft</option>
+            <option value="Live">Live</option>
+            <option value="used-h">used-h</option>
+            <option value="Rejected">Rejected</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Cookie Page</label>
+          <select id="f_cookie">
+            <option value="No">No</option>
+            <option value="Yes">Yes</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="checklist" style="margin-bottom: 14px;">
+        <h3>Google Tag Manager</h3>
+        <div class="check-item">
+          <input type="checkbox" id="c_gtm"/>
+          <label for="c_gtm">GTM container installed and verified <span class="hint">(GTM-XXXXXX in &lt;head&gt;)</span></label>
+        </div>
+        <div class="check-item">
+          <input type="checkbox" id="c_gtm_events"/>
+          <label for="c_gtm_events">Conversion / page-view events firing <span class="hint">(check Tag Assistant)</span></label>
+        </div>
+      </div>
+
+      <div class="checklist">
+        <h3>Google Ads Compliance Checklist</h3>
+        <div class="check-item">
+          <input type="checkbox" id="c_privacy"/>
+          <label for="c_privacy">Privacy Policy page <span class="hint">(/privacy)</span></label>
+        </div>
+        <div class="check-item">
+          <input type="checkbox" id="c_terms"/>
+          <label for="c_terms">Terms &amp; Conditions page</label>
+        </div>
+        <div class="check-item">
+          <input type="checkbox" id="c_about"/>
+          <label for="c_about">About Us page</label>
+        </div>
+        <div class="check-item">
+          <input type="checkbox" id="c_contact"/>
+          <label for="c_contact">Contact Us page <span class="hint">(real email + address)</span></label>
+        </div>
+        <div class="check-item">
+          <input type="checkbox" id="c_refund"/>
+          <label for="c_refund">Refund / Return policy</label>
+        </div>
+        <div class="check-item">
+          <input type="checkbox" id="c_cookie"/>
+          <label for="c_cookie">Cookie consent banner</label>
+        </div>
+        <div class="check-item">
+          <input type="checkbox" id="c_ssl"/>
+          <label for="c_ssl">HTTPS / SSL valid</label>
+        </div>
+        <div class="check-item">
+          <input type="checkbox" id="c_unique"/>
+          <label for="c_unique">Unique original content <span class="hint">(not template default)</span></label>
+        </div>
+        <div class="check-item">
+          <input type="checkbox" id="c_nav"/>
+          <label for="c_nav">Working navigation, no broken links</label>
+        </div>
+        <div class="check-item">
+          <input type="checkbox" id="c_mobile"/>
+          <label for="c_mobile">Mobile responsive</label>
+        </div>
+        <div class="check-item">
+          <input type="checkbox" id="c_favicon"/>
+          <label for="c_favicon">Favicon + meta title/description</label>
+        </div>
+      </div>
+
+      <div class="field" style="margin-top: 14px;">
+        <label>Feedback / Notes</label>
+        <textarea id="f_feedback" placeholder="Any rejection reason, edits needed, etc."></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn danger" id="deleteBtn" onclick="deleteCurrent()" style="display:none">Delete</button>
+      <button class="btn" onclick="closeModal()">Cancel</button>
+      <button class="btn primary" onclick="saveRecord()">Save</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const STORAGE_KEY = 'matcha_dashboard_v1';
+const AUTH_KEY = 'matcha_auth';
+const CREDS = { user: 'drinkmatcha', pass: 'drinkmatcha' };
+
+const ADS_CHECKS = [
+  ['c_privacy', 'Privacy Policy'],
+  ['c_terms', 'Terms'],
+  ['c_about', 'About'],
+  ['c_contact', 'Contact'],
+  ['c_refund', 'Refund'],
+  ['c_cookie', 'Cookie banner'],
+  ['c_ssl', 'HTTPS'],
+  ['c_unique', 'Unique content'],
+  ['c_nav', 'Navigation'],
+  ['c_mobile', 'Mobile'],
+  ['c_favicon', 'Favicon/meta'],
+];
+const GTM_CHECKS = [
+  ['c_gtm', 'GTM installed'],
+  ['c_gtm_events', 'Events firing'],
+];
+
+let records = [];
+let editingId = null;
+
+// ---------- AUTH ----------
+function doLogin() {
+  const u = document.getElementById('loginUser').value.trim();
+  const p = document.getElementById('loginPass').value;
+  if (u === CREDS.user && p === CREDS.pass) {
+    sessionStorage.setItem(AUTH_KEY, '1');
+    showApp();
+  } else {
+    document.getElementById('loginErr').textContent = 'Invalid credentials';
+  }
+}
+function logout() {
+  sessionStorage.removeItem(AUTH_KEY);
+  location.reload();
+}
+function showApp() {
+  document.getElementById('login').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+  load();
+  render();
+}
+
+// ---------- DATA ----------
+function load() {
+  try {
+    records = JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+  } catch { records = []; }
+}
+function save() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+}
+
+function uid() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+}
+
+function openModal(id) {
+  editingId = id || null;
+  document.getElementById('modalTitle').textContent = id ? 'Edit Website' : 'New Website';
+  document.getElementById('deleteBtn').style.display = id ? 'inline-block' : 'none';
+
+  const r = id ? records.find(r => r.id === id) : null;
+  document.getElementById('f_date').value = r?.date || new Date().toISOString().slice(0,10);
+  document.getElementById('f_topic').value = r?.topic || '';
+  document.getElementById('f_website').value = r?.website || '';
+  document.getElementById('f_github').value = r?.github || '';
+  document.getElementById('f_appname').value = r?.appname || '';
+  document.getElementById('f_platform').value = r?.platform || 'Heroku';
+  document.getElementById('f_status').value = r?.status || 'Draft';
+  document.getElementById('f_cookie').value = r?.cookie || 'No';
+  document.getElementById('f_feedback').value = r?.feedback || '';
+
+  [...GTM_CHECKS, ...ADS_CHECKS].forEach(([key]) => {
+    document.getElementById(key).checked = r?.checks?.[key] || false;
+  });
+
+  document.getElementById('modal').classList.add('open');
+}
+function closeModal() {
+  document.getElementById('modal').classList.remove('open');
+  editingId = null;
+}
+function saveRecord() {
+  const checks = {};
+  [...GTM_CHECKS, ...ADS_CHECKS].forEach(([key]) => {
+    checks[key] = document.getElementById(key).checked;
+  });
+  const data = {
+    id: editingId || uid(),
+    date: document.getElementById('f_date').value,
+    topic: document.getElementById('f_topic').value.trim(),
+    website: document.getElementById('f_website').value.trim(),
+    github: document.getElementById('f_github').value.trim(),
+    appname: document.getElementById('f_appname').value.trim(),
+    platform: document.getElementById('f_platform').value,
+    status: document.getElementById('f_status').value,
+    cookie: document.getElementById('f_cookie').value,
+    feedback: document.getElementById('f_feedback').value.trim(),
+    checks,
+    updated: Date.now(),
+  };
+  if (editingId) {
+    records = records.map(r => r.id === editingId ? data : r);
+  } else {
+    records.unshift(data);
+  }
+  save();
+  closeModal();
+  render();
+}
+function deleteCurrent() {
+  if (!editingId) return;
+  if (!confirm('Delete this record?')) return;
+  records = records.filter(r => r.id !== editingId);
+  save();
+  closeModal();
+  render();
+}
+
+// ---------- RENDER ----------
+function gtmDone(r) {
+  return r.checks?.c_gtm && r.checks?.c_gtm_events;
+}
+function adsScore(r) {
+  const done = ADS_CHECKS.filter(([k]) => r.checks?.[k]).length;
+  return { done, total: ADS_CHECKS.length };
+}
+function missingAds(r) {
+  return ADS_CHECKS.filter(([k]) => !r.checks?.[k]).map(([,label]) => label);
+}
+
+function render() {
+  const search = document.getElementById('searchInput').value.toLowerCase();
+  const fp = document.getElementById('filterPlatform').value;
+  const fs = document.getElementById('filterStatus').value;
+  const fg = document.getElementById('filterGtm').value;
+
+  const filtered = records.filter(r => {
+    if (search && !`${r.topic} ${r.appname} ${r.website} ${r.github}`.toLowerCase().includes(search)) return false;
+    if (fp && r.platform !== fp) return false;
+    if (fs && r.status !== fs) return false;
+    if (fg === 'yes' && !gtmDone(r)) return false;
+    if (fg === 'no' && gtmDone(r)) return false;
+    return true;
+  });
+
+  // stats
+  document.getElementById('statTotal').textContent = records.length;
+  document.getElementById('statLive').textContent = records.filter(r => r.status === 'Live').length;
+  document.getElementById('statGtm').textContent = records.filter(gtmDone).length;
+  document.getElementById('statAds').textContent = records.filter(r => adsScore(r).done === ADS_CHECKS.length).length;
+  document.getElementById('statIssues').textContent = records.filter(r => r.status === 'Rejected' || adsScore(r).done < ADS_CHECKS.length / 2).length;
+
+  const tbody = document.getElementById('tbody');
+  const empty = document.getElementById('empty');
+  if (filtered.length === 0) {
+    tbody.innerHTML = '';
+    empty.style.display = 'block';
+    return;
+  }
+  empty.style.display = 'none';
+
+  tbody.innerHTML = filtered.map(r => {
+    const score = adsScore(r);
+    const ratio = score.done / score.total;
+    const adsPill = score.done === score.total ? 'yes' : (ratio >= 0.7 ? 'partial' : 'no');
+    const missing = missingAds(r);
+    const missingText = missing.length ? `Missing: ${missing.slice(0,3).join(', ')}${missing.length>3?'...':''}` : 'All set';
+
+    const statusClass = ({
+      'Live':'status-live', 'used-h':'status-used-h', 'Rejected':'status-rejected', 'Draft':'status-draft'
+    })[r.status] || 'status-draft';
+
+    return `
+      <tr>
+        <td>${r.date || '-'}</td>
+        <td><strong>${escapeHtml(r.topic)}</strong></td>
+        <td>${r.website ? `<a href="${escapeAttr(r.website)}" target="_blank">${escapeHtml(shortUrl(r.website))}</a>` : '-'}</td>
+        <td>${r.github ? `<a href="${escapeAttr(r.github)}" target="_blank">${escapeHtml(shortUrl(r.github))}</a>` : '-'}</td>
+        <td>${escapeHtml(r.appname || '-')}</td>
+        <td><span class="pill ${r.platform === 'Heroku' ? 'heroku' : 'aws'}">${escapeHtml(r.platform)}</span></td>
+        <td><span class="pill ${r.cookie === 'Yes' ? 'yes' : 'no'}">${r.cookie}</span></td>
+        <td><span class="pill ${gtmDone(r) ? 'yes' : 'no'}">${gtmDone(r) ? '✓ Done' : '✗ Pending'}</span></td>
+        <td>
+          <span class="pill ${adsPill}">${score.done}/${score.total}</span>
+          <div style="font-size:11px; color: var(--muted); margin-top: 3px;">${escapeHtml(missingText)}</div>
+        </td>
+        <td><span class="pill ${statusClass}">${escapeHtml(r.status)}</span></td>
+        <td style="max-width: 180px; font-size: 12px; color: var(--muted);">${escapeHtml(r.feedback || '-')}</td>
+        <td>
+          <div class="row-actions">
+            <button class="icon-btn" onclick="openModal('${r.id}')" title="Edit">✎</button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function shortUrl(u) {
+  try {
+    const url = new URL(u);
+    return url.hostname + (url.pathname !== '/' ? url.pathname : '');
+  } catch { return u; }
+}
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function escapeAttr(s) { return escapeHtml(s); }
+
+// ---------- IMPORT / EXPORT ----------
+function exportData() {
+  const blob = new Blob([JSON.stringify(records, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `matcha-dashboard-${new Date().toISOString().slice(0,10)}.json`;
+  a.click();
+}
+function importData(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const data = JSON.parse(reader.result);
+      if (!Array.isArray(data)) throw new Error('Invalid format');
+      if (confirm(`Import ${data.length} records? This will replace your current data.`)) {
+        records = data;
+        save();
+        render();
+      }
+    } catch (err) { alert('Invalid file: ' + err.message); }
+  };
+  reader.readAsText(file);
+  e.target.value = '';
+}
+
+// ---------- INIT ----------
+if (sessionStorage.getItem(AUTH_KEY) === '1') {
+  showApp();
+}
+document.getElementById('loginPass').addEventListener('keydown', e => {
+  if (e.key === 'Enter') doLogin();
+});
+</script>
+</body>
+</html>
