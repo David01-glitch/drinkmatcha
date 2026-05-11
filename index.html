@@ -370,8 +370,12 @@
         </div>
       </div>
       <div class="field">
-        <label>Website Link</label>
-        <input id="f_website" placeholder="https://..."/>
+        <label>Website Link <span style="color:var(--muted); text-transform:none; letter-spacing:0;">— paste then click Auto-Detect</span></label>
+        <div style="display:flex; gap:8px;">
+          <input id="f_website" placeholder="https://..." style="flex:1;"/>
+          <button class="btn primary" type="button" onclick="autoDetect()" id="detectBtn">⚡ Auto-Detect</button>
+        </div>
+        <div id="detectStatus" style="font-size:12px; color:var(--muted); margin-top:6px;"></div>
       </div>
       <div class="field">
         <label>GitHub Link</label>
@@ -563,7 +567,10 @@ function openModal(id) {
 
   [...GTM_CHECKS, ...ADS_CHECKS].forEach(([key]) => {
     document.getElementById(key).checked = r?.checks?.[key] || false;
+    const lbl = document.getElementById(key).parentElement.querySelector('label .evidence');
+    if (lbl) lbl.remove();
   });
+  document.getElementById('detectStatus').textContent = '';
 
   document.getElementById('modal').classList.add('open');
 }
@@ -724,6 +731,65 @@ function importData(e) {
   };
   reader.readAsText(file);
   e.target.value = '';
+}
+
+// ---------- AUTO-DETECT ----------
+async function autoDetect() {
+  const url = document.getElementById('f_website').value.trim();
+  const status = document.getElementById('detectStatus');
+  const btn = document.getElementById('detectBtn');
+  if (!url) { status.textContent = 'Enter a website URL first'; status.style.color = 'var(--danger)'; return; }
+  if (!/^https?:\/\//i.test(url)) { status.textContent = 'URL must start with http:// or https://'; status.style.color = 'var(--danger)'; return; }
+
+  btn.disabled = true;
+  btn.textContent = '⏳ Scanning...';
+  status.style.color = 'var(--muted)';
+  status.textContent = 'Fetching site and analyzing...';
+
+  try {
+    const res = await fetch('check.php?url=' + encodeURIComponent(url));
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    if (!data.fetched) throw new Error('Could not fetch site (HTTP ' + data.http_code + ')');
+
+    // Auto-fill platform / app name / cookie
+    if (data.platform) document.getElementById('f_platform').value = data.platform;
+    if (data.appname) document.getElementById('f_appname').value = data.appname;
+    if (data.cookie) document.getElementById('f_cookie').value = data.cookie;
+
+    // Tick checkboxes based on detection
+    let passed = 0, total = 0;
+    Object.entries(data.checks).forEach(([key, val]) => {
+      const el = document.getElementById(key);
+      if (el) {
+        el.checked = !!val;
+        total++;
+        if (val) passed++;
+        const label = el.parentElement.querySelector('label');
+        if (label && data.evidence?.[key]) {
+          let existing = label.querySelector('.evidence');
+          if (!existing) {
+            existing = document.createElement('span');
+            existing.className = 'evidence';
+            existing.style.cssText = 'display:block; font-size:11px; color:' + (val ? 'var(--ok)' : 'var(--danger)') + '; margin-top:2px;';
+            label.appendChild(existing);
+          }
+          existing.textContent = (val ? '✓ ' : '✗ ') + data.evidence[key];
+          existing.style.color = val ? 'var(--ok)' : 'var(--danger)';
+        }
+      }
+    });
+
+    const pct = Math.round((passed / total) * 100);
+    status.style.color = pct === 100 ? 'var(--ok)' : (pct >= 70 ? 'var(--warn)' : 'var(--danger)');
+    status.textContent = `Detected ${passed}/${total} items (${pct}%) — ready to go live: ${pct === 100 ? '✓ Yes' : pct >= 70 ? 'Almost — fix missing items' : 'Not ready'}`;
+  } catch (err) {
+    status.style.color = 'var(--danger)';
+    status.textContent = 'Error: ' + err.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '⚡ Auto-Detect';
+  }
 }
 
 // ---------- INIT ----------
