@@ -3,265 +3,446 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>MATCHa Website Dashboard</title>
+<title>MATCHa · Website Command Center</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: #0f1115;
-    --panel: #161a22;
-    --panel-2: #1d222d;
-    --border: #262c39;
-    --text: #e6e8ee;
-    --muted: #8b94a7;
+    --bg-0: #0a0d14;
+    --bg-1: #0f1320;
+    --panel: rgba(22, 27, 42, 0.7);
+    --panel-solid: #161b2a;
+    --panel-2: rgba(29, 35, 53, 0.6);
+    --border: rgba(255,255,255,0.08);
+    --border-strong: rgba(255,255,255,0.14);
+    --text: #eef1f8;
+    --muted: #8b94ad;
+    --muted-2: #5c6479;
     --accent: #7bd389;
-    --accent-2: #4ea1ff;
-    --danger: #ff6b6b;
+    --accent-soft: rgba(123,211,137,0.14);
+    --accent-2: #6aa8ff;
+    --accent-2-soft: rgba(106,168,255,0.14);
+    --purple: #b08cff;
+    --purple-soft: rgba(176,140,255,0.14);
+    --danger: #ff6b7a;
+    --danger-soft: rgba(255,107,122,0.14);
     --warn: #ffb454;
-    --ok: #7bd389;
+    --warn-soft: rgba(255,180,84,0.14);
     --pink: #ff8ab0;
+    --shadow: 0 24px 80px rgba(0,0,0,.45);
   }
   * { box-sizing: border-box; }
+  html, body { height: 100%; }
   body {
     margin: 0;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    background: var(--bg);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background:
+      radial-gradient(1200px 600px at 80% -10%, rgba(106,168,255,0.12), transparent 60%),
+      radial-gradient(900px 500px at -10% 110%, rgba(123,211,137,0.10), transparent 60%),
+      radial-gradient(700px 400px at 100% 100%, rgba(176,140,255,0.08), transparent 60%),
+      linear-gradient(180deg, var(--bg-0), var(--bg-1));
+    background-attachment: fixed;
     color: var(--text);
     font-size: 14px;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
   }
+  code, .mono { font-family: 'JetBrains Mono', ui-monospace, monospace; }
+
   /* Login */
   #login {
     position: fixed; inset: 0;
     display: flex; align-items: center; justify-content: center;
-    background: var(--bg);
     z-index: 100;
   }
   .login-card {
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 14px;
-    padding: 32px;
-    width: 360px;
-    box-shadow: 0 20px 60px rgba(0,0,0,.4);
+    background: linear-gradient(180deg, rgba(28,33,52,0.85), rgba(18,22,36,0.85));
+    backdrop-filter: blur(20px);
+    border: 1px solid var(--border-strong);
+    border-radius: 18px;
+    padding: 36px 32px;
+    width: 380px;
+    box-shadow: var(--shadow);
   }
-  .login-card h1 {
-    margin: 0 0 4px; font-size: 22px;
+  .login-card .logo {
+    width: 44px; height: 44px; border-radius: 12px;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 800; color: #0a0f0a; font-size: 18px;
+    margin-bottom: 16px;
+    box-shadow: 0 8px 24px rgba(123,211,137,0.25);
   }
-  .login-card p { margin: 0 0 24px; color: var(--muted); font-size: 13px; }
+  .login-card h1 { margin: 0 0 6px; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
+  .login-card p { margin: 0 0 22px; color: var(--muted); font-size: 13px; }
   .login-card input {
-    width: 100%; padding: 11px 14px; margin-bottom: 12px;
-    background: var(--panel-2);
+    width: 100%; padding: 12px 14px; margin-bottom: 12px;
+    background: rgba(10,13,20,0.6);
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: 10px;
     color: var(--text);
     font-size: 14px;
+    transition: border-color .15s;
   }
+  .login-card input:focus { outline: none; border-color: var(--accent-2); }
   .login-card button {
     width: 100%; padding: 12px;
-    background: var(--accent);
-    color: #0a0f0a;
-    font-weight: 600;
+    background: linear-gradient(135deg, var(--accent), #5fbf74);
+    color: #08120c;
+    font-weight: 700;
     border: none;
-    border-radius: 8px;
+    border-radius: 10px;
     cursor: pointer;
     font-size: 14px;
+    letter-spacing: 0.01em;
+    transition: transform .15s, box-shadow .15s;
   }
-  .login-card .err { color: var(--danger); font-size: 12px; min-height: 16px; }
+  .login-card button:hover { transform: translateY(-1px); box-shadow: 0 10px 24px rgba(123,211,137,0.3); }
+  .login-card .err { color: var(--danger); font-size: 12px; min-height: 16px; margin-bottom: 4px; }
 
   /* App */
   #app { display: none; }
+
   header {
-    padding: 18px 28px;
+    padding: 22px 32px;
     border-bottom: 1px solid var(--border);
     display: flex; align-items: center; justify-content: space-between;
-    background: var(--panel);
+    background: linear-gradient(180deg, rgba(15,19,32,0.85), rgba(15,19,32,0.6));
+    backdrop-filter: blur(14px);
+    position: sticky; top: 0; z-index: 50;
   }
-  header h1 { margin: 0; font-size: 18px; font-weight: 600; }
-  header .sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
-  .header-actions { display: flex; gap: 8px; }
+  .brand { display: flex; align-items: center; gap: 14px; }
+  .brand-logo {
+    width: 40px; height: 40px; border-radius: 11px;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    display: flex; align-items: center; justify-content: center;
+    color: #08120c; font-weight: 800; font-size: 16px;
+    box-shadow: 0 8px 20px rgba(123,211,137,0.25);
+  }
+  header h1 { margin: 0; font-size: 17px; font-weight: 700; letter-spacing: -0.01em; }
+  header .sub { color: var(--muted); font-size: 12px; margin-top: 2px; display: flex; align-items: center; gap: 8px; }
+  .sync-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted-2); display: inline-block; box-shadow: 0 0 0 0 currentColor; }
+  .sync-dot.ok { background: var(--accent); animation: pulse 2.4s infinite; }
+  .sync-dot.warn { background: var(--warn); }
+  .sync-dot.bad { background: var(--danger); }
+  @keyframes pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(123,211,137,.4);} 50% { box-shadow: 0 0 0 6px rgba(123,211,137,0);} }
+
+  .header-actions { display: flex; gap: 8px; align-items: center; }
   button.btn {
-    background: var(--panel-2);
+    background: rgba(29,35,53,0.6);
     color: var(--text);
     border: 1px solid var(--border);
-    border-radius: 7px;
-    padding: 8px 14px;
+    border-radius: 9px;
+    padding: 9px 14px;
     cursor: pointer;
     font-size: 13px;
+    font-weight: 500;
+    transition: all .15s;
+    font-family: inherit;
   }
-  button.btn:hover { background: var(--border); }
-  button.btn.primary { background: var(--accent); color: #0a0f0a; border-color: var(--accent); font-weight: 600; }
+  button.btn:hover { background: rgba(255,255,255,0.06); border-color: var(--border-strong); transform: translateY(-1px); }
+  button.btn.primary {
+    background: linear-gradient(135deg, var(--accent), #5fbf74);
+    color: #08120c;
+    border-color: transparent;
+    font-weight: 700;
+    box-shadow: 0 6px 18px rgba(123,211,137,0.22);
+  }
+  button.btn.primary:hover { box-shadow: 0 10px 24px rgba(123,211,137,0.35); }
   button.btn.danger { color: var(--danger); }
+  button.btn.ghost { background: transparent; }
 
   /* Stats */
   .stats {
     display: grid; grid-template-columns: repeat(5, 1fr);
-    gap: 12px; padding: 20px 28px;
+    gap: 14px; padding: 24px 32px 14px;
   }
   .stat {
     background: var(--panel);
+    backdrop-filter: blur(12px);
     border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 14px 16px;
+    border-radius: 14px;
+    padding: 16px 18px;
+    position: relative;
+    overflow: hidden;
+    transition: transform .15s, border-color .15s;
   }
-  .stat .label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
-  .stat .val { font-size: 22px; font-weight: 600; margin-top: 4px; }
+  .stat:hover { transform: translateY(-2px); border-color: var(--border-strong); }
+  .stat::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, var(--accent), var(--accent-2));
+    opacity: 0.6;
+  }
+  .stat:nth-child(2)::before { background: linear-gradient(90deg, var(--accent-2), var(--purple)); }
+  .stat:nth-child(3)::before { background: linear-gradient(90deg, var(--purple), var(--pink)); }
+  .stat:nth-child(4)::before { background: linear-gradient(90deg, var(--pink), var(--warn)); }
+  .stat:nth-child(5)::before { background: linear-gradient(90deg, var(--warn), var(--danger)); }
+  .stat .label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px; font-weight: 600; }
+  .stat .val { font-size: 26px; font-weight: 700; margin-top: 6px; letter-spacing: -0.02em; }
 
   /* Filters */
   .filters {
-    display: flex; gap: 10px; padding: 0 28px 14px; flex-wrap: wrap;
+    display: flex; gap: 10px; padding: 6px 32px 18px; flex-wrap: wrap;
   }
   .filters input, .filters select {
     background: var(--panel);
+    backdrop-filter: blur(12px);
     border: 1px solid var(--border);
     color: var(--text);
-    padding: 8px 12px;
-    border-radius: 7px;
+    padding: 10px 14px;
+    border-radius: 10px;
     font-size: 13px;
+    font-family: inherit;
+    transition: border-color .15s;
   }
-  .filters input { min-width: 220px; }
+  .filters input:focus, .filters select:focus { outline: none; border-color: var(--accent-2); }
+  .filters input { min-width: 260px; }
 
   /* Table */
   .table-wrap {
-    margin: 0 28px 28px;
+    margin: 0 32px 32px;
     background: var(--panel);
+    backdrop-filter: blur(14px);
     border: 1px solid var(--border);
-    border-radius: 10px;
+    border-radius: 14px;
     overflow: auto;
+    box-shadow: 0 16px 50px rgba(0,0,0,0.2);
   }
-  table { width: 100%; border-collapse: collapse; min-width: 1600px; }
+  table { width: 100%; border-collapse: collapse; min-width: 1680px; }
   th, td {
     text-align: left;
-    padding: 10px 12px;
+    padding: 13px 14px;
     border-bottom: 1px solid var(--border);
     vertical-align: top;
     font-size: 13px;
   }
   th {
-    background: var(--panel-2);
+    background: rgba(10,13,20,0.5);
+    backdrop-filter: blur(8px);
     color: var(--muted);
-    font-weight: 500;
+    font-weight: 600;
     font-size: 11px;
     text-transform: uppercase;
-    letter-spacing: 0.5px;
+    letter-spacing: 0.6px;
     position: sticky; top: 0;
+    z-index: 2;
   }
-  tbody tr:hover { background: rgba(255,255,255,0.02); }
+  tbody tr { transition: background .12s; }
+  tbody tr:hover { background: rgba(255,255,255,0.03); }
+  tbody tr:last-child td { border-bottom: none; }
   td a { color: var(--accent-2); text-decoration: none; word-break: break-all; }
   td a:hover { text-decoration: underline; }
+
   .pill {
-    display: inline-block;
-    padding: 2px 8px;
-    border-radius: 10px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 9px;
+    border-radius: 999px;
     font-size: 11px;
-    font-weight: 500;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    border: 1px solid transparent;
   }
-  .pill.heroku { background: rgba(123,211,137,0.15); color: var(--accent); }
-  .pill.aws { background: rgba(255,180,84,0.15); color: var(--warn); }
-  .pill.yes { background: rgba(123,211,137,0.15); color: var(--ok); }
-  .pill.no { background: rgba(255,107,107,0.15); color: var(--danger); }
-  .pill.partial { background: rgba(255,180,84,0.15); color: var(--warn); }
-  .pill.status-live { background: rgba(78,161,255,0.15); color: var(--accent-2); }
-  .pill.status-used-h { background: rgba(255,138,176,0.15); color: var(--pink); }
-  .pill.status-rejected { background: rgba(255,107,107,0.15); color: var(--danger); }
-  .pill.status-draft { background: rgba(139,148,167,0.15); color: var(--muted); }
+  .pill.heroku { background: var(--accent-soft); color: var(--accent); border-color: rgba(123,211,137,0.25); }
+  .pill.aws { background: var(--warn-soft); color: var(--warn); border-color: rgba(255,180,84,0.25); }
+  .pill.other { background: var(--purple-soft); color: var(--purple); border-color: rgba(176,140,255,0.25); }
+  .pill.yes { background: var(--accent-soft); color: var(--accent); border-color: rgba(123,211,137,0.25); }
+  .pill.no { background: var(--danger-soft); color: var(--danger); border-color: rgba(255,107,122,0.25); }
+  .pill.partial { background: var(--warn-soft); color: var(--warn); border-color: rgba(255,180,84,0.25); }
+  .pill.status-live { background: var(--accent-2-soft); color: var(--accent-2); border-color: rgba(106,168,255,0.25); }
+  .pill.status-used-h { background: rgba(255,138,176,0.14); color: var(--pink); border-color: rgba(255,138,176,0.25); }
+  .pill.status-rejected { background: var(--danger-soft); color: var(--danger); border-color: rgba(255,107,122,0.25); }
+  .pill.status-draft { background: rgba(139,148,167,0.14); color: var(--muted); border-color: rgba(139,148,167,0.25); }
 
-  .checklist-mini { display: flex; flex-direction: column; gap: 3px; font-size: 11px; }
-  .checklist-mini .ci { display: flex; align-items: center; gap: 4px; }
-  .checklist-mini .ci.ok::before { content: "✓"; color: var(--ok); }
-  .checklist-mini .ci.no::before { content: "✗"; color: var(--danger); }
-
-  .row-actions { display: flex; gap: 6px; }
+  .row-actions { display: flex; gap: 4px; }
   .icon-btn {
-    background: none; border: none; cursor: pointer;
-    color: var(--muted); padding: 4px 6px; border-radius: 5px;
+    background: rgba(255,255,255,0.04); border: 1px solid var(--border); cursor: pointer;
+    color: var(--muted); padding: 6px 9px; border-radius: 7px;
     font-size: 13px;
+    transition: all .12s;
+    font-family: inherit;
+    position: relative;
   }
-  .icon-btn:hover { background: var(--border); color: var(--text); }
+  .icon-btn:hover { background: rgba(255,255,255,0.1); color: var(--text); border-color: var(--border-strong); }
   .icon-btn.del:hover { color: var(--danger); }
+  .icon-btn .badge {
+    position: absolute; top: -5px; right: -5px;
+    background: var(--accent-2); color: #08120c;
+    font-size: 9px; font-weight: 700;
+    border-radius: 9px; padding: 1px 5px;
+    min-width: 14px; text-align: center;
+  }
+  .icon-btn .badge.notes-badge { background: var(--pink); color: #2a0010; }
 
   /* Modal */
   .modal-bg {
     position: fixed; inset: 0;
-    background: rgba(0,0,0,0.6);
+    background: rgba(5,7,12,0.7);
+    backdrop-filter: blur(6px);
     display: none;
     align-items: center; justify-content: center;
     z-index: 200;
     padding: 20px;
+    animation: fadeIn .15s;
   }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
   .modal-bg.open { display: flex; }
   .modal {
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    width: 100%; max-width: 720px;
+    background: linear-gradient(180deg, rgba(28,33,52,0.95), rgba(18,22,36,0.95));
+    backdrop-filter: blur(20px);
+    border: 1px solid var(--border-strong);
+    border-radius: 16px;
+    width: 100%; max-width: 760px;
     max-height: 90vh; overflow-y: auto;
+    box-shadow: var(--shadow);
+    animation: slideUp .2s;
   }
+  @keyframes slideUp { from { transform: translateY(10px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
   .modal-header {
-    padding: 18px 22px;
+    padding: 20px 24px;
     border-bottom: 1px solid var(--border);
     display: flex; justify-content: space-between; align-items: center;
+    position: sticky; top: 0;
+    background: rgba(18,22,36,0.9);
+    backdrop-filter: blur(14px);
+    z-index: 2;
   }
-  .modal-header h2 { margin: 0; font-size: 17px; }
-  .modal-body { padding: 20px 22px; }
+  .modal-header h2 { margin: 0; font-size: 17px; font-weight: 700; letter-spacing: -0.01em; }
+  .modal-body { padding: 22px 24px; }
   .modal-footer {
-    padding: 14px 22px;
+    padding: 16px 24px;
     border-top: 1px solid var(--border);
     display: flex; justify-content: flex-end; gap: 8px;
+    position: sticky; bottom: 0;
+    background: rgba(18,22,36,0.9);
+    backdrop-filter: blur(14px);
   }
-  .field { margin-bottom: 14px; }
+  .field { margin-bottom: 16px; }
   .field label {
-    display: block; font-size: 12px; color: var(--muted);
-    margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.4px;
+    display: block; font-size: 11px; color: var(--muted);
+    margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px;
+    font-weight: 600;
   }
   .field input, .field select, .field textarea {
     width: 100%;
-    background: var(--panel-2);
+    background: rgba(10,13,20,0.5);
     border: 1px solid var(--border);
     color: var(--text);
-    padding: 9px 11px;
-    border-radius: 7px;
+    padding: 10px 12px;
+    border-radius: 9px;
     font-size: 13px;
     font-family: inherit;
+    transition: border-color .15s;
   }
-  .field textarea { resize: vertical; min-height: 60px; }
+  .field input:focus, .field select:focus, .field textarea:focus { outline: none; border-color: var(--accent-2); }
+  .field textarea { resize: vertical; min-height: 72px; }
   .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 
   .checklist {
-    background: var(--panel-2);
+    background: rgba(10,13,20,0.4);
     border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 12px 14px;
+    border-radius: 11px;
+    padding: 14px 16px;
   }
   .checklist h3 {
-    margin: 0 0 10px; font-size: 12px; color: var(--muted);
-    text-transform: uppercase; letter-spacing: 0.5px;
+    margin: 0 0 12px; font-size: 11px; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.6px; font-weight: 600;
   }
   .check-item {
-    display: flex; align-items: center; gap: 10px;
-    padding: 6px 0;
+    display: flex; align-items: flex-start; gap: 10px;
+    padding: 7px 0;
     border-bottom: 1px solid rgba(255,255,255,0.04);
   }
   .check-item:last-child { border-bottom: none; }
-  .check-item input[type=checkbox] { width: 16px; height: 16px; accent-color: var(--accent); }
-  .check-item label { font-size: 13px; flex: 1; cursor: pointer; color: var(--text); margin: 0; text-transform: none; letter-spacing: 0; }
+  .check-item input[type=checkbox] { width: 16px; height: 16px; accent-color: var(--accent); margin-top: 2px; flex-shrink: 0; }
+  .check-item label { font-size: 13px; flex: 1; cursor: pointer; color: var(--text); margin: 0; text-transform: none; letter-spacing: 0; font-weight: 400; }
   .check-item .hint { color: var(--muted); font-size: 11px; }
 
-  .compliance-summary {
-    margin-top: 8px;
+  /* Tabs (notes/history) */
+  .tabs { display: flex; gap: 4px; padding: 4px; background: rgba(10,13,20,0.5); border-radius: 10px; margin-bottom: 16px; border: 1px solid var(--border); }
+  .tab {
+    flex: 1;
     padding: 8px 12px;
-    border-radius: 6px;
-    font-size: 12px;
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 500;
+    border-radius: 7px;
+    cursor: pointer;
+    font-family: inherit;
+    transition: all .15s;
   }
-  .compliance-summary.ok { background: rgba(123,211,137,0.1); color: var(--ok); }
-  .compliance-summary.warn { background: rgba(255,180,84,0.1); color: var(--warn); }
-  .compliance-summary.bad { background: rgba(255,107,107,0.1); color: var(--danger); }
+  .tab:hover { color: var(--text); }
+  .tab.active { background: rgba(255,255,255,0.07); color: var(--text); font-weight: 600; }
+  .tab .count { font-size: 11px; opacity: 0.7; margin-left: 4px; }
+
+  .note-card, .history-card {
+    background: rgba(10,13,20,0.5);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 11px 13px;
+    margin-bottom: 10px;
+  }
+  .note-card-head, .history-card-head {
+    display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;
+  }
+  .note-author { font-size: 12px; color: var(--accent-2); font-weight: 600; }
+  .note-meta { display: flex; gap: 8px; align-items: center; font-size: 11px; color: var(--muted); }
+  .note-text { font-size: 13px; white-space: pre-wrap; line-height: 1.5; }
+
+  .history-badge {
+    display: inline-block;
+    background: var(--purple-soft);
+    color: var(--purple);
+    border: 1px solid rgba(176,140,255,0.25);
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .history-badge.link { background: var(--accent-2-soft); color: var(--accent-2); border-color: rgba(106,168,255,0.25); }
+  .history-diff {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 4px 10px;
+    font-size: 12px;
+    margin-top: 4px;
+  }
+  .history-diff .k { color: var(--muted); }
+  .history-diff .v.old { color: var(--danger); text-decoration: line-through; opacity: 0.8; word-break: break-all; }
+  .history-diff .v.new { color: var(--accent); word-break: break-all; }
 
   .empty {
-    text-align: center; padding: 60px 20px; color: var(--muted);
+    text-align: center; padding: 70px 20px; color: var(--muted);
   }
-  .empty h3 { color: var(--text); margin: 0 0 6px; }
+  .empty h3 { color: var(--text); margin: 0 0 6px; font-weight: 600; }
+  .empty .ico { font-size: 32px; margin-bottom: 12px; opacity: 0.5; }
+
+  .feedback-cell, .notes-cell {
+    max-width: 200px;
+    font-size: 12px;
+    color: var(--muted);
+    line-height: 1.4;
+  }
+  .notes-cell .latest { color: var(--text); }
+  .notes-cell .meta { color: var(--muted-2); font-size: 10px; margin-top: 3px; }
+
+  /* Scrollbar */
+  *::-webkit-scrollbar { width: 10px; height: 10px; }
+  *::-webkit-scrollbar-track { background: transparent; }
+  *::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 5px; }
+  *::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.16); }
 
   @media (max-width: 900px) {
     .stats { grid-template-columns: repeat(2, 1fr); }
     .grid-2 { grid-template-columns: 1fr; }
+    header { padding: 16px 18px; }
+    .stats, .filters { padding-left: 18px; padding-right: 18px; }
+    .table-wrap { margin: 0 18px 24px; }
   }
 </style>
 </head>
@@ -270,7 +451,8 @@
 <!-- LOGIN -->
 <div id="login">
   <div class="login-card">
-    <h1>MATCHa Dashboard</h1>
+    <div class="logo">M</div>
+    <h1>MATCHa Command Center</h1>
     <p>Sign in to manage your websites</p>
     <input id="loginUser" placeholder="Username" autocomplete="username"/>
     <input id="loginPass" type="password" placeholder="Password" autocomplete="current-password"/>
@@ -282,9 +464,15 @@
 <!-- APP -->
 <div id="app">
   <header>
-    <div>
-      <h1>MATCHa Website Dashboard</h1>
-      <div class="sub">Track every site, GTM, and Google Ads compliance · <span id="syncStatus" style="color:var(--muted);">Connecting...</span></div>
+    <div class="brand">
+      <div class="brand-logo">M</div>
+      <div>
+        <h1>Website Command Center</h1>
+        <div class="sub">
+          <span class="sync-dot" id="syncDot"></span>
+          <span id="syncStatus">Connecting…</span>
+        </div>
+      </div>
     </div>
     <div class="header-actions">
       <button class="btn" onclick="manualRefresh()" title="Pull latest from cloud">↻ Refresh</button>
@@ -293,7 +481,7 @@
       <input type="file" id="importFile" accept=".json" style="display:none" onchange="importData(event)"/>
       <button class="btn" onclick="openSettings()">⚙ Settings</button>
       <button class="btn primary" onclick="openModal()">+ New Website</button>
-      <button class="btn" onclick="logout()">Logout</button>
+      <button class="btn ghost" onclick="logout()">Logout</button>
     </div>
   </header>
 
@@ -306,11 +494,12 @@
   </div>
 
   <div class="filters">
-    <input id="searchInput" placeholder="Search topic, app, link..." oninput="render()"/>
+    <input id="searchInput" placeholder="🔍  Search topic, app, link…" oninput="render()"/>
     <select id="filterPlatform" onchange="render()">
       <option value="">All Platforms</option>
       <option value="Heroku">Heroku</option>
       <option value="AWS Amplify">AWS Amplify</option>
+      <option value="Other">Other</option>
     </select>
     <select id="filterStatus" onchange="render()">
       <option value="">All Status</option>
@@ -341,37 +530,49 @@
           <th>Ads Compliance</th>
           <th>Status</th>
           <th>Feedback</th>
-          <th>Team Notes</th>
+          <th>Latest Note</th>
           <th></th>
         </tr>
       </thead>
       <tbody id="tbody"></tbody>
     </table>
     <div id="empty" class="empty" style="display:none">
+      <div class="ico">🌱</div>
       <h3>No websites yet</h3>
       <div>Click "+ New Website" to add your first record</div>
     </div>
   </div>
 </div>
 
-<!-- NOTES MODAL -->
+<!-- NOTES + HISTORY MODAL -->
 <div class="modal-bg" id="notesModal">
-  <div class="modal" style="max-width: 560px;">
+  <div class="modal" style="max-width: 620px;">
     <div class="modal-header">
-      <h2>Notes — <span id="notesTitle"></span></h2>
+      <h2>📝 <span id="notesTitle"></span></h2>
       <button class="icon-btn" onclick="closeNotes()">✕</button>
     </div>
     <div class="modal-body">
-      <div id="notesList" style="max-height: 320px; overflow-y: auto; margin-bottom: 14px;"></div>
-      <div class="field">
-        <label>Add Note</label>
-        <input id="n_author" placeholder="Your name (optional)" style="margin-bottom: 8px;"/>
-        <textarea id="n_text" placeholder="Feedback, edits, issues..." rows="3"></textarea>
+      <div class="tabs">
+        <button class="tab active" id="tabNotesBtn" onclick="switchNotesTab('notes')">Notes <span class="count" id="notesCount"></span></button>
+        <button class="tab" id="tabHistoryBtn" onclick="switchNotesTab('history')">History <span class="count" id="historyCount"></span></button>
+      </div>
+
+      <div id="tabNotes">
+        <div id="notesList" style="max-height: 320px; overflow-y: auto; margin-bottom: 14px;"></div>
+        <div class="field">
+          <label>Add Note</label>
+          <input id="n_author" placeholder="Your name (optional)" style="margin-bottom: 8px;"/>
+          <textarea id="n_text" placeholder="Feedback, edits, issues…" rows="3"></textarea>
+        </div>
+      </div>
+
+      <div id="tabHistory" style="display:none">
+        <div id="historyList" style="max-height: 460px; overflow-y: auto;"></div>
       </div>
     </div>
     <div class="modal-footer">
       <button class="btn" onclick="closeNotes()">Close</button>
-      <button class="btn primary" onclick="addNote()">+ Add Note</button>
+      <button class="btn primary" id="addNoteBtn" onclick="addNote()">+ Add Note</button>
     </div>
   </div>
 </div>
@@ -380,7 +581,7 @@
 <div class="modal-bg" id="settingsModal">
   <div class="modal" style="max-width: 480px;">
     <div class="modal-header">
-      <h2>Settings</h2>
+      <h2>⚙ Settings</h2>
       <button class="icon-btn" onclick="closeSettings()">✕</button>
     </div>
     <div class="modal-body">
@@ -390,7 +591,14 @@
         <div style="font-size:12px; color:var(--muted); margin-top:6px;">
           Accepts <code>GTM-XXXXXX</code> (Tag Manager), <code>G-XXXXXXXXXX</code> (GA4 / gtag.js), or <code>UA-XXXX-X</code>. You can paste the full <code>&lt;script&gt;</code> block — the ID is auto-extracted. Leave blank to accept any tracking tag.
         </div>
-        <div id="s_gtm_extracted" style="font-size:12px; color:var(--ok); margin-top:6px;"></div>
+        <div id="s_gtm_extracted" style="font-size:12px; color:var(--accent); margin-top:6px;"></div>
+      </div>
+      <div class="field">
+        <label>Your Name (for change history)</label>
+        <input id="s_author" placeholder="Used to attribute edits in History"/>
+        <div style="font-size:12px; color:var(--muted); margin-top:6px;">
+          Shown next to every field edit and note. Saved in your browser only.
+        </div>
       </div>
     </div>
     <div class="modal-footer">
@@ -400,7 +608,7 @@
   </div>
 </div>
 
-<!-- MODAL -->
+<!-- EDIT MODAL -->
 <div class="modal-bg" id="modal">
   <div class="modal">
     <div class="modal-header">
@@ -419,7 +627,7 @@
         </div>
       </div>
       <div class="field">
-        <label>Website Link <span style="color:var(--muted); text-transform:none; letter-spacing:0;">— paste then click Auto-Detect</span></label>
+        <label>Website Link <span style="color:var(--muted); text-transform:none; letter-spacing:0; font-weight:400;">— paste then click Auto-Detect</span></label>
         <div style="display:flex; gap:8px;">
           <input id="f_website" placeholder="https://..." style="flex:1;"/>
           <button class="btn primary" type="button" onclick="autoDetect()" id="detectBtn">⚡ Auto-Detect</button>
@@ -477,50 +685,17 @@
 
       <div class="checklist">
         <h3>Google Ads Compliance Checklist</h3>
-        <div class="check-item">
-          <input type="checkbox" id="c_privacy"/>
-          <label for="c_privacy">Privacy Policy page <span class="hint">(/privacy)</span></label>
-        </div>
-        <div class="check-item">
-          <input type="checkbox" id="c_terms"/>
-          <label for="c_terms">Terms &amp; Conditions page</label>
-        </div>
-        <div class="check-item">
-          <input type="checkbox" id="c_about"/>
-          <label for="c_about">About Us page</label>
-        </div>
-        <div class="check-item">
-          <input type="checkbox" id="c_contact"/>
-          <label for="c_contact">Contact Us page <span class="hint">(real email + address)</span></label>
-        </div>
-        <div class="check-item">
-          <input type="checkbox" id="c_refund"/>
-          <label for="c_refund">Refund / Return policy</label>
-        </div>
-        <div class="check-item">
-          <input type="checkbox" id="c_cookie"/>
-          <label for="c_cookie">Cookie consent banner</label>
-        </div>
-        <div class="check-item">
-          <input type="checkbox" id="c_ssl"/>
-          <label for="c_ssl">HTTPS / SSL valid</label>
-        </div>
-        <div class="check-item">
-          <input type="checkbox" id="c_unique"/>
-          <label for="c_unique">Unique original content <span class="hint">(not template default)</span></label>
-        </div>
-        <div class="check-item">
-          <input type="checkbox" id="c_nav"/>
-          <label for="c_nav">Working navigation, no broken links</label>
-        </div>
-        <div class="check-item">
-          <input type="checkbox" id="c_mobile"/>
-          <label for="c_mobile">Mobile responsive</label>
-        </div>
-        <div class="check-item">
-          <input type="checkbox" id="c_favicon"/>
-          <label for="c_favicon">Favicon + meta title/description</label>
-        </div>
+        <div class="check-item"><input type="checkbox" id="c_privacy"/><label for="c_privacy">Privacy Policy page <span class="hint">(/privacy)</span></label></div>
+        <div class="check-item"><input type="checkbox" id="c_terms"/><label for="c_terms">Terms &amp; Conditions page</label></div>
+        <div class="check-item"><input type="checkbox" id="c_about"/><label for="c_about">About Us page</label></div>
+        <div class="check-item"><input type="checkbox" id="c_contact"/><label for="c_contact">Contact Us page <span class="hint">(real email + address)</span></label></div>
+        <div class="check-item"><input type="checkbox" id="c_refund"/><label for="c_refund">Refund / Return policy</label></div>
+        <div class="check-item"><input type="checkbox" id="c_cookie"/><label for="c_cookie">Cookie consent banner</label></div>
+        <div class="check-item"><input type="checkbox" id="c_ssl"/><label for="c_ssl">HTTPS / SSL valid</label></div>
+        <div class="check-item"><input type="checkbox" id="c_unique"/><label for="c_unique">Unique original content <span class="hint">(not template default)</span></label></div>
+        <div class="check-item"><input type="checkbox" id="c_nav"/><label for="c_nav">Working navigation, no broken links</label></div>
+        <div class="check-item"><input type="checkbox" id="c_mobile"/><label for="c_mobile">Mobile responsive</label></div>
+        <div class="check-item"><input type="checkbox" id="c_favicon"/><label for="c_favicon">Favicon + meta title/description</label></div>
       </div>
 
       <div class="field" style="margin-top: 14px;">
@@ -540,9 +715,10 @@
 const STORAGE_KEY = 'matcha_dashboard_v1';
 const SETTINGS_KEY = 'matcha_settings_v1';
 const AUTH_KEY = 'matcha_auth';
+const AUTHOR_KEY = 'matcha_note_author';
 const CREDS = { user: 'drinkmatcha', pass: 'drinkmatcha' };
 
-// ---------- SUPABASE (shared storage) ----------
+// ---------- SUPABASE ----------
 const SUPABASE_URL = 'https://urpchdnffbbzurbdcftq.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_x2VaR6MMjo3bE29RUMswGA_GBVyI-eX';
 
@@ -591,25 +767,31 @@ async function sbSetSetting(key, value) {
   });
 }
 
-function setSyncStatus(text, color) {
+function setSyncStatus(text, level) {
+  // level: 'ok' | 'warn' | 'bad' | undefined
   const el = document.getElementById('syncStatus');
-  if (!el) return;
-  el.textContent = text;
-  el.style.color = color || 'var(--muted)';
+  const dot = document.getElementById('syncDot');
+  if (el) el.textContent = text;
+  if (dot) {
+    dot.classList.remove('ok', 'warn', 'bad');
+    if (level) dot.classList.add(level);
+  }
 }
 
-let settings = { gtmId: '' };
+let settings = { gtmId: '', author: '' };
 async function loadSettings() {
+  try { settings = JSON.parse(localStorage.getItem(SETTINGS_KEY)) || { gtmId: '', author: '' }; }
+  catch { settings = { gtmId: '', author: '' }; }
   try {
     const remote = await sbGetSetting('gtmId');
     if (remote !== null) {
       settings.gtmId = remote;
       localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-      return;
     }
-  } catch (e) { console.error('Settings load failed', e); }
-  try { settings = JSON.parse(localStorage.getItem(SETTINGS_KEY)) || { gtmId: '' }; }
-  catch { settings = { gtmId: '' }; }
+  } catch (e) { console.warn('Settings load failed', e); }
+  // Author is local-only (different per person)
+  const localAuthor = localStorage.getItem(AUTHOR_KEY);
+  if (localAuthor) settings.author = localAuthor;
 }
 function extractTrackingId(raw) {
   if (!raw) return '';
@@ -618,12 +800,11 @@ function extractTrackingId(raw) {
 }
 function openSettings() {
   document.getElementById('s_gtm').value = settings.gtmId || '';
+  document.getElementById('s_author').value = settings.author || '';
   document.getElementById('s_gtm_extracted').textContent = settings.gtmId ? `Will check for: ${settings.gtmId}` : '';
   document.getElementById('settingsModal').classList.add('open');
 }
-function closeSettings() {
-  document.getElementById('settingsModal').classList.remove('open');
-}
+function closeSettings() { document.getElementById('settingsModal').classList.remove('open'); }
 async function saveSettings() {
   const raw = document.getElementById('s_gtm').value;
   const id = extractTrackingId(raw);
@@ -632,13 +813,15 @@ async function saveSettings() {
     return;
   }
   settings.gtmId = id;
+  settings.author = document.getElementById('s_author').value.trim();
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-  setSyncStatus('Saving settings...', 'var(--muted)');
+  if (settings.author) localStorage.setItem(AUTHOR_KEY, settings.author);
+  setSyncStatus('Saving settings…');
   try {
     await sbSetSetting('gtmId', id);
-    setSyncStatus('✓ Settings synced', 'var(--ok)');
+    setSyncStatus('✓ Settings synced', 'ok');
   } catch (e) {
-    setSyncStatus('✗ Settings save failed: ' + e.message, 'var(--danger)');
+    setSyncStatus('✗ Settings save failed: ' + e.message, 'bad');
   }
   closeSettings();
 }
@@ -660,6 +843,18 @@ const GTM_CHECKS = [
   ['c_gtm', 'GTM installed'],
   ['c_gtm_events', 'Events firing'],
 ];
+
+// Human-readable field labels for history
+const FIELD_LABELS = {
+  date: 'Date', topic: 'Topic', website: 'Website Link', github: 'GitHub Link',
+  appname: 'App Name', platform: 'Platform', status: 'Status', cookie: 'Cookie',
+  feedback: 'Feedback',
+  c_gtm: 'GTM installed', c_gtm_events: 'GTM events',
+  c_privacy: 'Privacy Policy', c_terms: 'Terms', c_about: 'About',
+  c_contact: 'Contact', c_refund: 'Refund', c_cookie: 'Cookie banner',
+  c_ssl: 'HTTPS/SSL', c_unique: 'Unique content', c_nav: 'Navigation',
+  c_mobile: 'Mobile responsive', c_favicon: 'Favicon/meta',
+};
 
 let records = [];
 let editingId = null;
@@ -686,7 +881,6 @@ async function showApp() {
   await loadSettings();
   await load();
   render();
-  // auto-refresh every 30s so other users' edits appear
   setInterval(async () => {
     try { await load(); render(); } catch {}
   }, 30000);
@@ -697,38 +891,41 @@ async function manualRefresh() {
 }
 
 // ---------- DATA ----------
+function normalizeRec(r) {
+  return {
+    ...r,
+    checks: r.checks || {},
+    notes: Array.isArray(r.notes) ? r.notes : [],
+  };
+}
+
 async function load() {
-  setSyncStatus('Loading from cloud...', 'var(--muted)');
+  setSyncStatus('Loading from cloud…');
   try {
     const remote = await sbLoadAll();
-    // One-time migration: if cloud is empty and local cache has records, push them up
     if (remote.length === 0) {
       let local = [];
       try { local = JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; } catch {}
       if (local.length > 0) {
-        setSyncStatus('Migrating ' + local.length + ' local records to cloud...', 'var(--muted)');
+        setSyncStatus('Migrating ' + local.length + ' local records…');
         for (const r of local) {
           try { await sbUpsert({ ...r, updated: new Date().toISOString() }); } catch {}
         }
         const after = await sbLoadAll();
-        records = after.map(r => ({ ...r, checks: r.checks || {}, notes: r.notes || [] }));
+        records = after.map(normalizeRec);
         localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
-        setSyncStatus('✓ Migrated ' + records.length + ' records', 'var(--ok)');
+        setSyncStatus('✓ Migrated ' + records.length + ' records', 'ok');
         return;
       }
     }
-    records = remote.map(r => ({
-      ...r,
-      checks: r.checks || {},
-      notes: r.notes || [],
-    }));
+    records = remote.map(normalizeRec);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
-    setSyncStatus('✓ Synced · ' + new Date().toLocaleTimeString(), 'var(--ok)');
+    setSyncStatus('✓ Synced · ' + new Date().toLocaleTimeString(), 'ok');
   } catch (e) {
     console.error(e);
-    try { records = JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; }
+    try { records = (JSON.parse(localStorage.getItem(STORAGE_KEY)) || []).map(normalizeRec); }
     catch { records = []; }
-    setSyncStatus('⚠ Offline (using cache) — ' + e.message, 'var(--warn)');
+    setSyncStatus('⚠ Offline (using cache)', 'warn');
   }
 }
 
@@ -738,29 +935,26 @@ function saveCache() {
 
 async function persist(rec) {
   saveCache();
-  setSyncStatus('Saving...', 'var(--muted)');
+  setSyncStatus('Saving…');
   try {
     const payload = { ...rec, updated: new Date().toISOString() };
     await sbUpsert(payload);
-    setSyncStatus('✓ Saved · ' + new Date().toLocaleTimeString(), 'var(--ok)');
+    setSyncStatus('✓ Saved · ' + new Date().toLocaleTimeString(), 'ok');
   } catch (e) {
-    setSyncStatus('✗ Save failed: ' + e.message, 'var(--danger)');
+    setSyncStatus('✗ Save failed: ' + e.message, 'bad');
   }
 }
 
 async function persistDelete(id) {
   saveCache();
-  setSyncStatus('Deleting...', 'var(--muted)');
+  setSyncStatus('Deleting…');
   try {
     await sbDelete(id);
-    setSyncStatus('✓ Deleted · ' + new Date().toLocaleTimeString(), 'var(--ok)');
+    setSyncStatus('✓ Deleted · ' + new Date().toLocaleTimeString(), 'ok');
   } catch (e) {
-    setSyncStatus('✗ Delete failed: ' + e.message, 'var(--danger)');
+    setSyncStatus('✗ Delete failed: ' + e.message, 'bad');
   }
 }
-
-// Legacy alias for callers that still write to cache only
-function save() { saveCache(); }
 
 function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -795,11 +989,49 @@ function closeModal() {
   document.getElementById('modal').classList.remove('open');
   editingId = null;
 }
+
+// Build a change-history note entry
+function makeChangeNote(field, oldVal, newVal, author) {
+  return {
+    type: 'change',
+    field,
+    oldValue: oldVal == null ? '' : String(oldVal),
+    newValue: newVal == null ? '' : String(newVal),
+    author: author || 'Team',
+    ts: Date.now(),
+  };
+}
+
+function diffAndAppendHistory(oldRec, newRec) {
+  const author = (settings.author || '').trim() || 'Team';
+  const entries = [];
+  const scalarFields = ['date','topic','website','github','appname','platform','status','cookie','feedback'];
+  for (const f of scalarFields) {
+    const a = (oldRec?.[f] ?? '');
+    const b = (newRec?.[f] ?? '');
+    if (String(a) !== String(b)) entries.push(makeChangeNote(f, a, b, author));
+  }
+  // checks
+  const oldChecks = oldRec?.checks || {};
+  const newChecks = newRec?.checks || {};
+  const allKeys = new Set([...Object.keys(oldChecks), ...Object.keys(newChecks)]);
+  for (const k of allKeys) {
+    const a = !!oldChecks[k];
+    const b = !!newChecks[k];
+    if (a !== b) entries.push(makeChangeNote(k, a ? '✓' : '✗', b ? '✓' : '✗', author));
+  }
+  if (entries.length) {
+    newRec.notes = [...(newRec.notes || []), ...entries];
+  }
+  return entries.length;
+}
+
 function saveRecord() {
   const checks = {};
   [...GTM_CHECKS, ...ADS_CHECKS].forEach(([key]) => {
     checks[key] = document.getElementById(key).checked;
   });
+  const existing = editingId ? records.find(r => r.id === editingId) : null;
   const data = {
     id: editingId || uid(),
     date: document.getElementById('f_date').value,
@@ -812,11 +1044,18 @@ function saveRecord() {
     cookie: document.getElementById('f_cookie').value,
     feedback: document.getElementById('f_feedback').value.trim(),
     checks,
+    notes: existing?.notes ? [...existing.notes] : [],
     updated: Date.now(),
   };
   if (editingId) {
+    diffAndAppendHistory(existing, data);
     records = records.map(r => r.id === editingId ? data : r);
   } else {
+    // Seed history with a "created" entry
+    data.notes.push({
+      type: 'change', field: '__created', oldValue: '', newValue: 'Record created',
+      author: (settings.author || 'Team'), ts: Date.now(),
+    });
     records.unshift(data);
   }
   persist(data);
@@ -825,7 +1064,7 @@ function saveRecord() {
 }
 function deleteCurrent() {
   if (!editingId) return;
-  if (!confirm('Delete this record?')) return;
+  if (!confirm('Delete this record? This cannot be undone.')) return;
   const id = editingId;
   records = records.filter(r => r.id !== id);
   persistDelete(id);
@@ -834,9 +1073,7 @@ function deleteCurrent() {
 }
 
 // ---------- RENDER ----------
-function gtmDone(r) {
-  return r.checks?.c_gtm && r.checks?.c_gtm_events;
-}
+function gtmDone(r) { return r.checks?.c_gtm && r.checks?.c_gtm_events; }
 function adsScore(r) {
   const done = ADS_CHECKS.filter(([k]) => r.checks?.[k]).length;
   return { done, total: ADS_CHECKS.length };
@@ -844,6 +1081,8 @@ function adsScore(r) {
 function missingAds(r) {
   return ADS_CHECKS.filter(([k]) => !r.checks?.[k]).map(([,label]) => label);
 }
+function userNotes(r) { return (r.notes || []).filter(n => n.type !== 'change'); }
+function changeNotes(r) { return (r.notes || []).filter(n => n.type === 'change'); }
 
 function render() {
   const search = document.getElementById('searchInput').value.toLowerCase();
@@ -860,7 +1099,6 @@ function render() {
     return true;
   });
 
-  // stats
   document.getElementById('statTotal').textContent = records.length;
   document.getElementById('statLive').textContent = records.filter(r => r.status === 'Live').length;
   document.getElementById('statGtm').textContent = records.filter(gtmDone).length;
@@ -881,46 +1119,64 @@ function render() {
     const ratio = score.done / score.total;
     const adsPill = score.done === score.total ? 'yes' : (ratio >= 0.7 ? 'partial' : 'no');
     const missing = missingAds(r);
-    const missingText = missing.length ? `Missing: ${missing.slice(0,3).join(', ')}${missing.length>3?'...':''}` : 'All set';
+    const missingText = missing.length ? `Missing: ${missing.slice(0,3).join(', ')}${missing.length>3?'…':''}` : 'All set';
 
     const statusClass = ({
       'Live':'status-live', 'used-h':'status-used-h', 'Rejected':'status-rejected', 'Draft':'status-draft'
     })[r.status] || 'status-draft';
 
+    const platformPill = r.platform === 'Heroku' ? 'heroku' : (r.platform === 'AWS Amplify' ? 'aws' : 'other');
+
+    const uNotes = userNotes(r);
+    const cNotes = changeNotes(r);
+    const latestNote = uNotes[uNotes.length - 1];
+    const notesCellHtml = latestNote ? `
+      <div class="latest">${escapeHtml(latestNote.text.slice(0,80))}${latestNote.text.length>80?'…':''}</div>
+      <div class="meta">${escapeHtml(latestNote.author || 'Team')} · ${new Date(latestNote.ts).toLocaleDateString()} · ${uNotes.length} note${uNotes.length>1?'s':''}</div>
+    ` : '<span style="color: var(--muted-2);">No notes</span>';
+
+    const notesBadge = uNotes.length ? `<span class="badge notes-badge">${uNotes.length}</span>` : '';
+    const histBadge = cNotes.length ? `<span class="badge">${cNotes.length}</span>` : '';
+
     return `
       <tr>
-        <td>${r.date || '-'}</td>
+        <td style="white-space:nowrap;">${escapeHtml(r.date || '-')}</td>
         <td><strong>${escapeHtml(r.topic)}</strong></td>
-        <td>${r.website ? `<a href="${escapeAttr(r.website)}" target="_blank">${escapeHtml(shortUrl(r.website))}</a>` : '-'}</td>
-        <td>${r.github ? `<a href="${escapeAttr(r.github)}" target="_blank">${escapeHtml(shortUrl(r.github))}</a>` : '-'}</td>
+        <td>${r.website ? `<a href="${escapeAttr(r.website)}" target="_blank" rel="noopener">${escapeHtml(shortUrl(r.website))}</a>` : '-'}</td>
+        <td>${r.github ? `<a href="${escapeAttr(r.github)}" target="_blank" rel="noopener">${escapeHtml(shortUrl(r.github))}</a>` : '-'}</td>
         <td>${escapeHtml(r.appname || '-')}</td>
-        <td><span class="pill ${r.platform === 'Heroku' ? 'heroku' : 'aws'}">${escapeHtml(r.platform)}</span></td>
-        <td><span class="pill ${r.cookie === 'Yes' ? 'yes' : 'no'}">${r.cookie}</span></td>
+        <td><span class="pill ${platformPill}">${escapeHtml(r.platform || '-')}</span></td>
+        <td><span class="pill ${r.cookie === 'Yes' ? 'yes' : 'no'}">${escapeHtml(r.cookie || 'No')}</span></td>
         <td><span class="pill ${gtmDone(r) ? 'yes' : 'no'}">${gtmDone(r) ? '✓ Done' : '✗ Pending'}</span></td>
         <td>
           <span class="pill ${adsPill}">${score.done}/${score.total}</span>
-          <div style="font-size:11px; color: var(--muted); margin-top: 3px;">${escapeHtml(missingText)}</div>
+          <div style="font-size:11px; color: var(--muted); margin-top: 4px;">${escapeHtml(missingText)}</div>
         </td>
         <td><span class="pill ${statusClass}">${escapeHtml(r.status)}</span></td>
-        <td style="max-width: 180px; font-size: 12px; color: var(--muted);">${escapeHtml(r.feedback || '-')}</td>
-        <td style="max-width: 220px; font-size: 12px;">
-          ${(r.notes && r.notes.length) ? `
-            <div style="color: var(--text);">${escapeHtml(r.notes[r.notes.length-1].text.slice(0,80))}${r.notes[r.notes.length-1].text.length>80?'…':''}</div>
-            <div style="color: var(--muted); font-size: 10px; margin-top: 2px;">
-              ${escapeHtml(r.notes[r.notes.length-1].author || 'Team')} · ${new Date(r.notes[r.notes.length-1].ts).toLocaleDateString()} · ${r.notes.length} note${r.notes.length>1?'s':''}
-            </div>
-          ` : '<span style="color: var(--muted);">No notes</span>'}
-        </td>
+        <td class="feedback-cell">${escapeHtml(r.feedback || '-')}</td>
+        <td class="notes-cell">${notesCellHtml}</td>
         <td>
           <div class="row-actions">
-            <button class="icon-btn" onclick="openNotes('${r.id}')" title="Notes">📝</button>
-            <button class="icon-btn" onclick="openModal('${r.id}')" title="Edit">✎</button>
+            <button class="icon-btn" data-action="notes" data-id="${escapeAttr(r.id)}" title="Notes (${uNotes.length})">📝${notesBadge}</button>
+            <button class="icon-btn" data-action="history" data-id="${escapeAttr(r.id)}" title="History (${cNotes.length} changes)">🕒${histBadge}</button>
+            <button class="icon-btn" data-action="edit" data-id="${escapeAttr(r.id)}" title="Edit">✎</button>
           </div>
         </td>
       </tr>
     `;
   }).join('');
 }
+
+// Delegated click handler for row actions — avoids any onclick string-escaping issues
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-action]');
+  if (!btn) return;
+  const id = btn.getAttribute('data-id');
+  const action = btn.getAttribute('data-action');
+  if (action === 'notes') openNotes(id, 'notes');
+  else if (action === 'history') openNotes(id, 'history');
+  else if (action === 'edit') openModal(id);
+});
 
 function shortUrl(u) {
   try {
@@ -950,18 +1206,18 @@ function importData(e) {
       const data = JSON.parse(reader.result);
       if (!Array.isArray(data)) throw new Error('Invalid format');
       if (confirm(`Import ${data.length} records? This will replace your current data and sync to cloud.`)) {
-        records = data;
+        records = data.map(normalizeRec);
         saveCache();
         render();
         (async () => {
-          setSyncStatus('Importing to cloud...', 'var(--muted)');
+          setSyncStatus('Importing to cloud…');
           try {
             for (const r of records) {
               await sbUpsert({ ...r, updated: new Date().toISOString() });
             }
-            setSyncStatus('✓ Imported ' + records.length + ' records', 'var(--ok)');
+            setSyncStatus('✓ Imported ' + records.length + ' records', 'ok');
           } catch (e) {
-            setSyncStatus('✗ Import failed: ' + e.message, 'var(--danger)');
+            setSyncStatus('✗ Import failed: ' + e.message, 'bad');
           }
         })();
       }
@@ -971,60 +1227,119 @@ function importData(e) {
   e.target.value = '';
 }
 
-// ---------- NOTES ----------
+// ---------- NOTES + HISTORY ----------
 let notesRecordId = null;
-function openNotes(id) {
+let notesTab = 'notes';
+
+function openNotes(id, tab) {
   notesRecordId = id;
+  notesTab = tab || 'notes';
   const r = records.find(x => x.id === id);
-  if (!r) return;
+  if (!r) { alert('Record not found — try refreshing'); return; }
   document.getElementById('notesTitle').textContent = r.topic || 'Site';
-  document.getElementById('n_author').value = localStorage.getItem('matcha_note_author') || '';
+  document.getElementById('n_author').value = settings.author || localStorage.getItem(AUTHOR_KEY) || '';
   document.getElementById('n_text').value = '';
-  renderNotesList();
+  switchNotesTab(notesTab);
   document.getElementById('notesModal').classList.add('open');
 }
 function closeNotes() {
   document.getElementById('notesModal').classList.remove('open');
   notesRecordId = null;
 }
+function switchNotesTab(tab) {
+  notesTab = tab;
+  document.getElementById('tabNotesBtn').classList.toggle('active', tab === 'notes');
+  document.getElementById('tabHistoryBtn').classList.toggle('active', tab === 'history');
+  document.getElementById('tabNotes').style.display = tab === 'notes' ? 'block' : 'none';
+  document.getElementById('tabHistory').style.display = tab === 'history' ? 'block' : 'none';
+  document.getElementById('addNoteBtn').style.display = tab === 'notes' ? 'inline-block' : 'none';
+  if (tab === 'notes') renderNotesList();
+  else renderHistoryList();
+}
+
 function renderNotesList() {
   const r = records.find(x => x.id === notesRecordId);
   const list = document.getElementById('notesList');
-  if (!r || !r.notes || r.notes.length === 0) {
-    list.innerHTML = '<div style="color: var(--muted); font-size: 13px; text-align: center; padding: 20px;">No notes yet. Add the first one below.</div>';
+  const uNotes = r ? userNotes(r) : [];
+  document.getElementById('notesCount').textContent = uNotes.length ? `(${uNotes.length})` : '';
+  if (!uNotes.length) {
+    list.innerHTML = '<div style="color: var(--muted); font-size: 13px; text-align: center; padding: 24px;">No notes yet. Add the first one below.</div>';
     return;
   }
-  list.innerHTML = [...r.notes].reverse().map((n, revIdx) => {
-    const realIdx = r.notes.length - 1 - revIdx;
+  list.innerHTML = [...uNotes].reverse().map((n, revIdx) => {
+    const realIdx = (r.notes || []).indexOf(n);
     return `
-      <div style="background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 8px;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-          <div style="font-size: 12px; color: var(--accent-2); font-weight: 500;">${escapeHtml(n.author || 'Team')}</div>
-          <div style="display: flex; gap: 8px; align-items: center;">
-            <span style="font-size: 11px; color: var(--muted);">${new Date(n.ts).toLocaleString()}</span>
-            <button class="icon-btn del" onclick="deleteNote(${realIdx})" title="Delete note">🗑</button>
+      <div class="note-card">
+        <div class="note-card-head">
+          <div class="note-author">${escapeHtml(n.author || 'Team')}</div>
+          <div class="note-meta">
+            <span>${new Date(n.ts).toLocaleString()}</span>
+            <button class="icon-btn del" data-action="del-note" data-idx="${realIdx}" title="Delete note">🗑</button>
           </div>
         </div>
-        <div style="font-size: 13px; white-space: pre-wrap;">${escapeHtml(n.text)}</div>
+        <div class="note-text">${escapeHtml(n.text)}</div>
       </div>
     `;
   }).join('');
 }
+
+function renderHistoryList() {
+  const r = records.find(x => x.id === notesRecordId);
+  const list = document.getElementById('historyList');
+  const cNotes = r ? changeNotes(r) : [];
+  document.getElementById('historyCount').textContent = cNotes.length ? `(${cNotes.length})` : '';
+  if (!cNotes.length) {
+    list.innerHTML = '<div style="color: var(--muted); font-size: 13px; text-align: center; padding: 24px;">No edits recorded yet. Future changes will show here automatically.</div>';
+    return;
+  }
+  list.innerHTML = [...cNotes].reverse().map(n => {
+    const isCreated = n.field === '__created';
+    const fieldLabel = FIELD_LABELS[n.field] || n.field;
+    const isLink = n.field === 'website' || n.field === 'github';
+    const badgeClass = isLink ? 'history-badge link' : 'history-badge';
+    const badgeText = isCreated ? 'Created' : (isLink ? '🔗 Link' : fieldLabel);
+    return `
+      <div class="history-card">
+        <div class="history-card-head">
+          <span class="${badgeClass}">${escapeHtml(badgeText)}</span>
+          <div class="note-meta">
+            <span class="note-author">${escapeHtml(n.author || 'Team')}</span>
+            <span>${new Date(n.ts).toLocaleString()}</span>
+          </div>
+        </div>
+        ${isCreated ? '' : `
+          <div style="font-size:12px; color:var(--muted); margin-top:6px;">Changed <strong style="color:var(--text);">${escapeHtml(fieldLabel)}</strong></div>
+          <div class="history-diff">
+            <span class="k">from</span><span class="v old">${escapeHtml(n.oldValue || '∅')}</span>
+            <span class="k">to</span><span class="v new">${escapeHtml(n.newValue || '∅')}</span>
+          </div>
+        `}
+      </div>
+    `;
+  }).join('');
+}
+
 function addNote() {
   const text = document.getElementById('n_text').value.trim();
   if (!text) return;
   const author = document.getElementById('n_author').value.trim();
-  if (author) localStorage.setItem('matcha_note_author', author);
+  if (author) { localStorage.setItem(AUTHOR_KEY, author); settings.author = author; }
   const r = records.find(x => x.id === notesRecordId);
   if (!r) return;
   r.notes = r.notes || [];
-  r.notes.push({ text, author, ts: Date.now() });
+  r.notes.push({ type: 'note', text, author, ts: Date.now() });
   persist(r);
   document.getElementById('n_text').value = '';
   renderNotesList();
   render();
 }
-function deleteNote(idx) {
+
+// Delegated handler for note-delete buttons inside the notes modal
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-action="del-note"]');
+  if (!btn) return;
+  const idx = parseInt(btn.getAttribute('data-idx'), 10);
+  if (isNaN(idx)) return;
   const r = records.find(x => x.id === notesRecordId);
   if (!r || !r.notes) return;
   if (!confirm('Delete this note?')) return;
@@ -1032,7 +1347,7 @@ function deleteNote(idx) {
   persist(r);
   renderNotesList();
   render();
-}
+});
 
 // ---------- AUTO-DETECT ----------
 async function autoDetect() {
@@ -1043,9 +1358,9 @@ async function autoDetect() {
   if (!/^https?:\/\//i.test(url)) { status.textContent = 'URL must start with http:// or https://'; status.style.color = 'var(--danger)'; return; }
 
   btn.disabled = true;
-  btn.textContent = '⏳ Scanning...';
+  btn.textContent = '⏳ Scanning…';
   status.style.color = 'var(--muted)';
-  status.textContent = 'Fetching site and analyzing...';
+  status.textContent = 'Fetching site and analyzing…';
 
   try {
     const gtmParam = settings.gtmId ? '&gtm=' + encodeURIComponent(settings.gtmId) : '';
@@ -1054,12 +1369,10 @@ async function autoDetect() {
     if (data.error) throw new Error(data.error);
     if (!data.fetched) throw new Error('Could not fetch site (HTTP ' + data.http_code + ')');
 
-    // Auto-fill platform / app name / cookie
     if (data.platform) document.getElementById('f_platform').value = data.platform;
     if (data.appname) document.getElementById('f_appname').value = data.appname;
     if (data.cookie) document.getElementById('f_cookie').value = data.cookie;
 
-    // Tick checkboxes based on detection
     let passed = 0, total = 0;
     Object.entries(data.checks).forEach(([key, val]) => {
       const el = document.getElementById(key);
@@ -1073,17 +1386,17 @@ async function autoDetect() {
           if (!existing) {
             existing = document.createElement('span');
             existing.className = 'evidence';
-            existing.style.cssText = 'display:block; font-size:11px; color:' + (val ? 'var(--ok)' : 'var(--danger)') + '; margin-top:2px;';
+            existing.style.cssText = 'display:block; font-size:11px; margin-top:2px;';
             label.appendChild(existing);
           }
           existing.textContent = (val ? '✓ ' : '✗ ') + data.evidence[key];
-          existing.style.color = val ? 'var(--ok)' : 'var(--danger)';
+          existing.style.color = val ? 'var(--accent)' : 'var(--danger)';
         }
       }
     });
 
     const pct = Math.round((passed / total) * 100);
-    status.style.color = pct === 100 ? 'var(--ok)' : (pct >= 70 ? 'var(--warn)' : 'var(--danger)');
+    status.style.color = pct === 100 ? 'var(--accent)' : (pct >= 70 ? 'var(--warn)' : 'var(--danger)');
     const spaNote = data.is_spa ? ` · SPA detected (scanned ${data.js_fetched?.length || 0} JS bundle${data.js_fetched?.length === 1 ? '' : 's'})` : '';
     status.textContent = `Detected ${passed}/${total} items (${pct}%) — ${pct === 100 ? '✓ Ready' : pct >= 70 ? 'Almost — fix missing' : 'Not ready'}${spaNote}`;
   } catch (err) {
@@ -1105,9 +1418,26 @@ document.getElementById('loginPass').addEventListener('keydown', e => {
 document.getElementById('s_gtm').addEventListener('input', e => {
   const id = extractTrackingId(e.target.value);
   const out = document.getElementById('s_gtm_extracted');
-  if (id) { out.textContent = `✓ Will check for: ${id}`; out.style.color = 'var(--ok)'; }
+  if (id) { out.textContent = `✓ Will check for: ${id}`; out.style.color = 'var(--accent)'; }
   else if (e.target.value.trim()) { out.textContent = '✗ No valid ID found (need GTM-..., G-..., or UA-...)'; out.style.color = 'var(--danger)'; }
   else { out.textContent = ''; }
+});
+
+// Close modals when clicking on the backdrop
+document.querySelectorAll('.modal-bg').forEach(bg => {
+  bg.addEventListener('click', (e) => {
+    if (e.target === bg) {
+      bg.classList.remove('open');
+      if (bg.id === 'modal') editingId = null;
+      if (bg.id === 'notesModal') notesRecordId = null;
+    }
+  });
+});
+// Escape to close
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    document.querySelectorAll('.modal-bg.open').forEach(bg => bg.classList.remove('open'));
+  }
 });
 </script>
 </body>
