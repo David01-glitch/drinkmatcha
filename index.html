@@ -454,6 +454,7 @@
     <div class="logo">M</div>
     <h1>MATCHa Command Center</h1>
     <p>Sign in to manage your websites</p>
+    <input id="loginName" placeholder="Your name (shown on every edit)" autocomplete="name"/>
     <input id="loginUser" placeholder="Username" autocomplete="username"/>
     <input id="loginPass" type="password" placeholder="Password" autocomplete="current-password"/>
     <div class="err" id="loginErr"></div>
@@ -861,10 +862,17 @@ let editingId = null;
 
 // ---------- AUTH ----------
 function doLogin() {
+  const name = document.getElementById('loginName').value.trim();
   const u = document.getElementById('loginUser').value.trim();
   const p = document.getElementById('loginPass').value;
+  if (!name) {
+    document.getElementById('loginErr').textContent = 'Please enter your name — every edit is attributed to you';
+    return;
+  }
   if (u === CREDS.user && p === CREDS.pass) {
     sessionStorage.setItem(AUTH_KEY, '1');
+    localStorage.setItem(AUTHOR_KEY, name);
+    settings.author = name;
     showApp();
   } else {
     document.getElementById('loginErr').textContent = 'Invalid credentials';
@@ -1409,11 +1417,16 @@ async function autoDetect() {
 }
 
 // ---------- INIT ----------
-if (sessionStorage.getItem(AUTH_KEY) === '1') {
+const savedName = localStorage.getItem(AUTHOR_KEY) || '';
+if (savedName) document.getElementById('loginName').value = savedName;
+if (sessionStorage.getItem(AUTH_KEY) === '1' && savedName) {
+  settings.author = savedName;
   showApp();
 }
-document.getElementById('loginPass').addEventListener('keydown', e => {
-  if (e.key === 'Enter') doLogin();
+['loginName', 'loginUser', 'loginPass'].forEach(id => {
+  document.getElementById(id).addEventListener('keydown', e => {
+    if (e.key === 'Enter') doLogin();
+  });
 });
 document.getElementById('s_gtm').addEventListener('input', e => {
   const id = extractTrackingId(e.target.value);
