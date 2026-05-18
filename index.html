@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
   :root {
     --bg-0: #0a0d14;
@@ -470,6 +471,59 @@
   .notes-cell .latest { color: var(--text); }
   .notes-cell .meta { color: var(--muted-2); font-size: 10px; margin-top: 3px; }
 
+  /* Toasts */
+  .toast-wrap {
+    position: fixed; top: 84px; right: 20px; z-index: 300;
+    display: flex; flex-direction: column; gap: 10px;
+    max-width: 360px;
+    pointer-events: none;
+  }
+  .toast {
+    background: linear-gradient(180deg, rgba(28,33,52,0.96), rgba(18,22,36,0.96));
+    backdrop-filter: blur(18px);
+    border: 1px solid var(--border-strong);
+    border-left: 3px solid var(--accent);
+    border-radius: 12px;
+    padding: 12px 14px;
+    box-shadow: 0 16px 40px rgba(0,0,0,0.5);
+    color: var(--text);
+    font-size: 13px;
+    pointer-events: auto;
+    cursor: pointer;
+    animation: toastIn .25s ease-out;
+    display: flex; gap: 10px; align-items: flex-start;
+  }
+  .toast.edit { border-left-color: var(--accent-2); }
+  .toast.note { border-left-color: var(--pink); }
+  .toast .ico { font-size: 18px; line-height: 1; flex-shrink: 0; margin-top: 1px; }
+  .toast .body { flex: 1; min-width: 0; }
+  .toast .title { font-weight: 700; font-size: 13px; margin-bottom: 2px; letter-spacing: -0.005em; }
+  .toast .msg { color: var(--muted); font-size: 12px; line-height: 1.4; word-break: break-word; }
+  .toast .close { background: none; border: none; color: var(--muted-2); cursor: pointer; font-size: 14px; padding: 0 2px; }
+  .toast .close:hover { color: var(--text); }
+  @keyframes toastIn {
+    from { transform: translateX(20px); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+  }
+  .toast.out { animation: toastOut .2s forwards; }
+  @keyframes toastOut {
+    to { transform: translateX(20px); opacity: 0; }
+  }
+
+  .notif-btn {
+    position: relative;
+  }
+  .notif-btn.granted::after {
+    content: ''; position: absolute; top: 6px; right: 6px;
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--accent); box-shadow: 0 0 8px var(--accent);
+  }
+  .notif-btn.denied::after {
+    content: ''; position: absolute; top: 6px; right: 6px;
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--danger);
+  }
+
   /* Scrollbar */
   *::-webkit-scrollbar { width: 10px; height: 10px; }
   *::-webkit-scrollbar-track { background: transparent; }
@@ -515,6 +569,7 @@
       </div>
     </div>
     <div class="header-actions">
+      <button class="btn notif-btn" id="notifBtn" onclick="toggleNotifications()" title="Enable browser notifications">🔔</button>
       <button class="btn" onclick="manualRefresh()" title="Pull latest from cloud">↻ Refresh</button>
       <button class="btn" onclick="exportData()">Export</button>
       <button class="btn" onclick="document.getElementById('importFile').click()">Import</button>
@@ -583,6 +638,9 @@
     </div>
   </div>
 </div>
+
+<!-- TOAST CONTAINER -->
+<div class="toast-wrap" id="toastWrap"></div>
 
 <!-- NOTES + HISTORY MODAL -->
 <div class="modal-bg" id="notesModal">
@@ -927,10 +985,18 @@ async function showApp() {
   render();
   await loadSettings();
   await load();
+  // Seed snapshot so first poll doesn't fire notifications for existing rows
+  seedSnapshot();
   render();
+  updateNotifBtnState();
+  // Auto-ask once per browser
+  maybeAskPermissionOnce();
+  // Realtime subscription (instant) — falls back to polling if it errors
+  startRealtime();
+  // Polling backup every 15s
   setInterval(async () => {
-    try { await load(); render(); } catch {}
-  }, 30000);
+    try { await load(); detectChangesAndNotify(); render(); } catch {}
+  }, 15000);
 }
 async function manualRefresh() {
   await load();
@@ -1503,6 +1569,215 @@ async function autoDetect() {
   } finally {
     btn.disabled = false;
     btn.textContent = '⚡ Auto-Detect';
+  }
+}
+
+// ---------- NOTIFICATIONS ----------
+// snapshot maps id -> { updated, notesCount, signature }
+let snapshot = new Map();
+function recordSignature(r) {
+  return [
+    r.topic || '', r.website || '', r.github || '', r.appname || '',
+    r.platform || '', r.status || '', r.cookie || '', r.feedback || '',
+    (r.notes || []).length,
+    updatedMs(r),
+  ].join('|');
+}
+function seedSnapshot() {
+  snapshot = new Map();
+  for (const r of records) snapshot.set(r.id, { sig: recordSignature(r), notes: (r.notes || []).length, updated: updatedMs(r) });
+}
+
+function detectChangesAndNotify() {
+  const myName = (settings.author || '').toLowerCase();
+  for (const r of records) {
+    const prev = snapshot.get(r.id);
+    if (!prev) {
+      // brand-new record
+      const author = (lastEditor(r) || 'Team');
+      const isMine = author.toLowerCase() === myName;
+      if (!isMine) {
+        notify({
+          kind: 'new',
+          title: '✨ New website added',
+          msg: `${author} added "${r.topic || 'Untitled'}"${r.website ? ' — ' + shortUrl(r.website) : ''}`,
+          recordId: r.id,
+        });
+      }
+    } else if (recordSignature(r) !== prev.sig) {
+      // updated record — figure out what changed
+      const newNotes = (r.notes || []).slice(prev.notes);
+      const userAdded = newNotes.find(n => n.type !== 'change');
+      const changeEntries = newNotes.filter(n => n.type === 'change' && n.field !== '__created');
+      if (userAdded) {
+        const author = userAdded.author || 'Team';
+        if (author.toLowerCase() !== myName) {
+          notify({
+            kind: 'note',
+            title: '📝 New note',
+            msg: `${author} on "${r.topic || 'Untitled'}": ${userAdded.text.slice(0, 80)}${userAdded.text.length > 80 ? '…' : ''}`,
+            recordId: r.id,
+          });
+        }
+      } else if (changeEntries.length) {
+        const author = changeEntries[changeEntries.length - 1].author || 'Team';
+        if (author.toLowerCase() !== myName) {
+          const fields = [...new Set(changeEntries.map(e => FIELD_LABELS[e.field] || e.field))];
+          const linkChanged = changeEntries.some(e => e.field === 'website' || e.field === 'github');
+          notify({
+            kind: 'edit',
+            title: linkChanged ? '🔗 Link updated' : '✎ Website edited',
+            msg: `${author} updated "${r.topic || 'Untitled'}" — ${fields.slice(0, 3).join(', ')}${fields.length > 3 ? '…' : ''}`,
+            recordId: r.id,
+          });
+        }
+      } else if (updatedMs(r) > (prev.updated || 0)) {
+        // Updated by someone but we don't have history details (e.g. edited from a pre-history version)
+        const author = lastEditor(r) || 'Team';
+        if (author.toLowerCase() !== myName) {
+          notify({
+            kind: 'edit',
+            title: '✎ Website edited',
+            msg: `${author} updated "${r.topic || 'Untitled'}"`,
+            recordId: r.id,
+          });
+        }
+      }
+    }
+    snapshot.set(r.id, { sig: recordSignature(r), notes: (r.notes || []).length, updated: updatedMs(r) });
+  }
+}
+
+function notify({ kind, title, msg, recordId }) {
+  showToast({ kind, title, msg, recordId });
+  showOSNotification({ title, msg, recordId });
+}
+
+function showToast({ kind, title, msg, recordId }) {
+  const wrap = document.getElementById('toastWrap');
+  if (!wrap) return;
+  const t = document.createElement('div');
+  t.className = 'toast ' + (kind === 'new' ? '' : kind);
+  const ico = kind === 'new' ? '✨' : kind === 'note' ? '📝' : '✎';
+  t.innerHTML = `
+    <div class="ico">${ico}</div>
+    <div class="body">
+      <div class="title">${escapeHtml(title)}</div>
+      <div class="msg">${escapeHtml(msg)}</div>
+    </div>
+    <button class="close" title="Dismiss">✕</button>
+  `;
+  t.addEventListener('click', (e) => {
+    if (e.target.classList.contains('close')) { dismissToast(t); return; }
+    if (recordId) {
+      const row = document.querySelector(`tr [data-id="${CSS.escape(recordId)}"]`);
+      if (row) row.closest('tr').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+    dismissToast(t);
+  });
+  wrap.appendChild(t);
+  setTimeout(() => dismissToast(t), 8000);
+}
+function dismissToast(t) {
+  if (!t.parentNode) return;
+  t.classList.add('out');
+  setTimeout(() => t.remove(), 200);
+}
+
+function showOSNotification({ title, msg, recordId }) {
+  if (!('Notification' in window)) return;
+  if (Notification.permission !== 'granted') return;
+  // Only fire OS notification if tab isn't visible — otherwise the toast is enough
+  if (document.visibilityState === 'visible' && document.hasFocus()) return;
+  try {
+    const n = new Notification(title, {
+      body: msg,
+      icon: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="%237bd389"/><text x="32" y="44" font-family="Arial" font-size="36" font-weight="bold" text-anchor="middle" fill="%23081208">M</text></svg>',
+      tag: recordId || 'matcha',
+      renotify: false,
+    });
+    n.onclick = () => { window.focus(); n.close(); };
+    setTimeout(() => n.close(), 9000);
+  } catch (e) { console.warn('OS notification failed', e); }
+}
+
+function updateNotifBtnState() {
+  const btn = document.getElementById('notifBtn');
+  if (!btn || !('Notification' in window)) return;
+  btn.classList.remove('granted', 'denied');
+  if (Notification.permission === 'granted') {
+    btn.classList.add('granted');
+    btn.title = 'Notifications enabled · click to test';
+  } else if (Notification.permission === 'denied') {
+    btn.classList.add('denied');
+    btn.title = 'Notifications blocked — change in browser site settings';
+  } else {
+    btn.title = 'Enable browser notifications';
+  }
+}
+
+async function toggleNotifications() {
+  if (!('Notification' in window)) {
+    alert('Your browser does not support notifications.');
+    return;
+  }
+  if (Notification.permission === 'granted') {
+    // Test notification
+    showToast({ kind: 'new', title: '✅ Notifications working', msg: 'You will be alerted when teammates add or edit websites.', recordId: null });
+    showOSNotification({ title: 'MATCHa notifications enabled', msg: 'You\'ll see alerts when teammates add or edit websites.', recordId: null });
+    return;
+  }
+  if (Notification.permission === 'denied') {
+    alert('Notifications are blocked. Click the lock/info icon in your browser address bar and allow notifications for this site, then refresh.');
+    return;
+  }
+  const perm = await Notification.requestPermission();
+  updateNotifBtnState();
+  if (perm === 'granted') {
+    showToast({ kind: 'new', title: '🔔 Notifications on', msg: 'You\'ll get alerts when teammates add or edit websites.', recordId: null });
+  }
+}
+
+function maybeAskPermissionOnce() {
+  if (!('Notification' in window)) return;
+  if (Notification.permission !== 'default') return;
+  if (localStorage.getItem('matcha_notif_asked') === '1') return;
+  localStorage.setItem('matcha_notif_asked', '1');
+  // Defer slightly so it doesn't fire mid-login
+  setTimeout(() => {
+    Notification.requestPermission().then(() => updateNotifBtnState());
+  }, 1500);
+}
+
+// ---------- REALTIME (Supabase websocket) ----------
+let realtimeClient = null;
+function startRealtime() {
+  if (realtimeClient) return;
+  if (typeof window.supabase === 'undefined' || !window.supabase.createClient) {
+    console.warn('supabase-js not loaded, realtime disabled (polling still active)');
+    return;
+  }
+  try {
+    realtimeClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+      auth: { persistSession: false },
+    });
+    realtimeClient
+      .channel('websites-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'websites' }, async (payload) => {
+        try {
+          await load();
+          detectChangesAndNotify();
+          render();
+        } catch (e) { console.warn('realtime refresh failed', e); }
+      })
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') console.log('✓ Realtime subscribed');
+        else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          console.warn('Realtime status:', status, '— polling will still work');
+        }
+      });
+  } catch (e) {
+    console.warn('Realtime init failed (polling will still work)', e);
   }
 }
 
