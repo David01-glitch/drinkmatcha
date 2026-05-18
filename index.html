@@ -1046,10 +1046,21 @@ async function manualRefresh() {
 
 // ---------- DATA ----------
 function normalizeRec(r) {
+  const notes = Array.isArray(r.notes) ? r.notes : [];
+  // Derive archived state from the latest __archived marker in the notes/history
+  let archived = !!r.archived;
+  for (let i = notes.length - 1; i >= 0; i--) {
+    const n = notes[i];
+    if (n && n.type === 'change' && n.field === '__archived') {
+      archived = n.newValue === 'archived';
+      break;
+    }
+  }
   return {
     ...r,
     checks: r.checks || {},
-    notes: Array.isArray(r.notes) ? r.notes : [],
+    notes,
+    archived,
   };
 }
 
@@ -1063,7 +1074,7 @@ async function load() {
       if (local.length > 0) {
         setSyncStatus('Migrating ' + local.length + ' local records…');
         for (const r of local) {
-          try { await sbUpsert({ ...r, updated: new Date().toISOString() }); } catch {}
+          try { const { archived, ...rest } = r; await sbUpsert({ ...rest, updated: new Date().toISOString() }); } catch {}
         }
         const after = await sbLoadAll();
         records = after.map(normalizeRec);
@@ -1091,7 +1102,9 @@ async function persist(rec) {
   saveCache();
   setSyncStatus('Saving…');
   try {
-    const payload = { ...rec, updated: new Date().toISOString() };
+    // Strip client-only derived fields (archived is derived from notes/history)
+    const { archived, ...rest } = rec;
+    const payload = { ...rest, updated: new Date().toISOString() };
     await sbUpsert(payload);
     setSyncStatus('✓ Saved · ' + new Date().toLocaleTimeString(), 'ok');
   } catch (e) {
@@ -1442,7 +1455,8 @@ function importData(e) {
           setSyncStatus('Importing to cloud…');
           try {
             for (const r of records) {
-              await sbUpsert({ ...r, updated: new Date().toISOString() });
+              const { archived, ...rest } = r;
+              await sbUpsert({ ...rest, updated: new Date().toISOString() });
             }
             setSyncStatus('✓ Imported ' + records.length + ' records', 'ok');
           } catch (e) {
