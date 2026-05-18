@@ -510,6 +510,42 @@
     to { transform: translateX(20px); opacity: 0; }
   }
 
+  .arch-toggle {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 8px 12px;
+    background: var(--panel);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    font-size: 13px;
+    color: var(--muted);
+    cursor: pointer;
+    user-select: none;
+    transition: border-color .15s, color .15s;
+  }
+  .arch-toggle:hover { border-color: var(--border-strong); color: var(--text); }
+  .arch-toggle input { accent-color: var(--accent); cursor: pointer; }
+  .archived-count {
+    background: rgba(255,255,255,0.06);
+    padding: 1px 7px; border-radius: 999px;
+    font-size: 11px; font-weight: 600; color: var(--muted);
+  }
+  tbody tr.archived td { opacity: 0.55; }
+  tbody tr.archived td:first-child { box-shadow: inset 3px 0 0 var(--muted-2); }
+  .arch-tag {
+    display: inline-block;
+    background: rgba(139,148,167,0.14);
+    color: var(--muted);
+    border: 1px solid rgba(139,148,167,0.25);
+    padding: 1px 7px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-left: 6px;
+  }
+
   .notif-btn {
     position: relative;
   }
@@ -608,6 +644,10 @@
       <option value="yes">GTM: Done</option>
       <option value="no">GTM: Missing</option>
     </select>
+    <label class="arch-toggle" title="Show archived rows">
+      <input type="checkbox" id="showArchived" onchange="render()"/>
+      <span>📦 Show archived <span id="archivedCount" class="archived-count">0</span></span>
+    </label>
   </div>
 
   <div class="table-wrap">
@@ -952,6 +992,7 @@ const FIELD_LABELS = {
   c_contact: 'Contact', c_refund: 'Refund', c_cookie: 'Cookie banner',
   c_ssl: 'HTTPS/SSL', c_unique: 'Unique content', c_nav: 'Navigation',
   c_mobile: 'Mobile responsive', c_favicon: 'Favicon/meta',
+  __archived: 'Archived',
 };
 
 let records = [];
@@ -1241,7 +1282,13 @@ function render() {
   const fs = document.getElementById('filterStatus').value;
   const fg = document.getElementById('filterGtm').value;
 
+  const showArchived = document.getElementById('showArchived')?.checked;
+  const archivedTotal = records.filter(r => r.archived).length;
+  const ac = document.getElementById('archivedCount');
+  if (ac) ac.textContent = archivedTotal;
+
   const filtered = records.filter(r => {
+    if (!showArchived && r.archived) return false;
     if (search && !`${r.topic} ${r.appname} ${r.website} ${r.github}`.toLowerCase().includes(search)) return false;
     if (fp && r.platform !== fp) return false;
     if (fs && r.status !== fs) return false;
@@ -1289,19 +1336,20 @@ function render() {
     const notesBadge = uNotes.length ? `<span class="badge notes-badge">${uNotes.length}</span>` : '';
     const histBadge = cNotes.length ? `<span class="badge">${cNotes.length}</span>` : '';
 
-    const recent = isRecent(r);
+    const recent = isRecent(r) && !r.archived;
     const isNew = recent && isNewEntry(r);
     const editor = lastEditor(r);
     const editorLine = (editor || updatedMs(r)) ? `<span class="last-edit">${editor ? `<b>${escapeHtml(editor)}</b> · ` : ''}${escapeHtml(timeAgo(updatedMs(r)))}</span>` : '';
     const recentBadge = recent
       ? (isNew ? '<span class="recent-badge new">✨ New</span>' : '<span class="recent-badge">✎ Edited</span>')
       : '';
-    const rowClass = isNew ? 'new-entry' : (recent ? 'recent' : '');
+    const archTag = r.archived ? '<span class="arch-tag">Archived</span>' : '';
+    const rowClass = r.archived ? 'archived' : (isNew ? 'new-entry' : (recent ? 'recent' : ''));
 
     return `
       <tr class="${rowClass}">
         <td style="white-space:nowrap;">${escapeHtml(r.date || '-')}${editorLine}</td>
-        <td><strong>${escapeHtml(r.topic)}</strong>${recentBadge}</td>
+        <td><strong>${escapeHtml(r.topic)}</strong>${recentBadge}${archTag}</td>
         <td>${r.website ? `<a href="${escapeAttr(r.website)}" target="_blank" rel="noopener">${escapeHtml(shortUrl(r.website))}</a>` : '-'}</td>
         <td>${r.github ? `<a href="${escapeAttr(r.github)}" target="_blank" rel="noopener">${escapeHtml(shortUrl(r.github))}</a>` : '-'}</td>
         <td>${escapeHtml(r.appname || '-')}</td>
@@ -1320,6 +1368,7 @@ function render() {
             <button class="icon-btn" data-action="notes" data-id="${escapeAttr(r.id)}" title="Notes (${uNotes.length})">📝${notesBadge}</button>
             <button class="icon-btn" data-action="history" data-id="${escapeAttr(r.id)}" title="History (${cNotes.length} changes)">🕒${histBadge}</button>
             <button class="icon-btn" data-action="edit" data-id="${escapeAttr(r.id)}" title="Edit">✎</button>
+            <button class="icon-btn" data-action="archive" data-id="${escapeAttr(r.id)}" title="${r.archived ? 'Restore' : 'Archive (hide from main view)'}">${r.archived ? '↩' : '📦'}</button>
           </div>
         </td>
       </tr>
@@ -1336,7 +1385,27 @@ document.addEventListener('click', (e) => {
   if (action === 'notes') openNotes(id, 'notes');
   else if (action === 'history') openNotes(id, 'history');
   else if (action === 'edit') openModal(id);
+  else if (action === 'archive') toggleArchive(id);
 });
+
+function toggleArchive(id) {
+  const r = records.find(x => x.id === id);
+  if (!r) return;
+  const willArchive = !r.archived;
+  if (willArchive && !confirm(`Hide "${r.topic || 'this record'}" from the main view? You can show it again with the "Show archived" toggle.`)) return;
+  r.archived = willArchive;
+  r.notes = r.notes || [];
+  r.notes.push({
+    type: 'change',
+    field: '__archived',
+    oldValue: willArchive ? 'visible' : 'archived',
+    newValue: willArchive ? 'archived' : 'visible',
+    author: (settings.author || 'Team'),
+    ts: Date.now(),
+  });
+  persist(r);
+  render();
+}
 
 function shortUrl(u) {
   try {
