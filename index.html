@@ -1712,6 +1712,30 @@ document.addEventListener('click', (e) => {
 // --- Region usage: fetch app counts per region, annotate the dropdown ---
 const AMPLIFY_APPS_PER_REGION_QUOTA = 25; // AWS default; adjust if you've requested an increase
 
+const REGION_LABELS = {
+  'us-east-1':      '🇺🇸 USA · N. Virginia',
+  'us-east-2':      '🇺🇸 USA · Ohio',
+  'us-west-1':      '🇺🇸 USA · N. California',
+  'us-west-2':      '🇺🇸 USA · Oregon',
+  'ca-central-1':   '🇨🇦 Canada · Central',
+  'eu-west-1':      '🇮🇪 Ireland',
+  'eu-west-2':      '🇬🇧 UK · London',
+  'eu-west-3':      '🇫🇷 France · Paris',
+  'eu-central-1':   '🇩🇪 Germany · Frankfurt',
+  'eu-north-1':     '🇸🇪 Sweden · Stockholm',
+  'ap-south-1':     '🇮🇳 India · Mumbai',
+  'ap-south-2':     '🇮🇳 India · Hyderabad',
+  'ap-southeast-1': '🇸🇬 Singapore',
+  'ap-southeast-2': '🇦🇺 Australia · Sydney',
+  'ap-northeast-1': '🇯🇵 Japan · Tokyo',
+  'ap-northeast-2': '🇰🇷 S. Korea · Seoul',
+  'ap-northeast-3': '🇯🇵 Japan · Osaka',
+  'sa-east-1':      '🇧🇷 Brazil · São Paulo',
+};
+function regionLabel(code) {
+  return REGION_LABELS[code] ? `${REGION_LABELS[code]} (${code})` : code;
+}
+
 async function refreshRegionUsage() {
   const sel = document.getElementById('f_region');
   const hint = document.getElementById('regionLoadHint');
@@ -1814,7 +1838,7 @@ async function loadAmplifyApps() {
         return `
           <tr data-appid="${escapeAttr(a.appId)}" data-region="${escapeAttr(a.region)}">
             <td><strong>${escapeHtml(a.name || '-')}</strong></td>
-            <td><span style="font-family:monospace; font-size:12px;">${escapeHtml(a.region)}</span></td>
+            <td><span style="font-size:12px;">${escapeHtml(regionLabel(a.region))}</span></td>
             <td><span style="font-family:monospace; font-size:11px; color:var(--muted);">${escapeHtml(a.appId)}</span></td>
             <td>${a.defaultDomain ? `<a href="${escapeAttr(url)}" target="_blank" rel="noopener">${escapeHtml(url.replace('https://', ''))}</a>` : '-'}</td>
             <td>${a.repository ? `<a href="${escapeAttr(a.repository)}" target="_blank" rel="noopener" style="font-size:12px;">${escapeHtml(shortUrl(a.repository))}</a>` : '<span style="color:var(--muted); font-size:12px;">manual</span>'}</td>
