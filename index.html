@@ -1912,6 +1912,66 @@ async function deleteAmplifyAppFromList(appId, region, name) {
   }
 }
 
+// Poll an Amplify build job until terminal status, then show pass/fail + reason
+async function pollAmplifyJob({ appId, region, branch, jobId, url, consoleUrl }) {
+  const status = document.getElementById('amplifyStatus');
+  if (!status) return;
+  const TERMINAL = new Set(['SUCCEED', 'FAILED', 'CANCELLED']);
+  const INTERVAL_MS = 8000;
+  const MAX_WAIT_MS = 10 * 60 * 1000;
+  const startedAt = Date.now();
+  let lastStepLine = '';
+
+  while (Date.now() - startedAt < MAX_WAIT_MS) {
+    await new Promise(r => setTimeout(r, INTERVAL_MS));
+    try {
+      const res = await fetch('deploy.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'status', appId, region, branch, jobId }),
+      });
+      const d = await res.json();
+      if (!res.ok || d.error) throw new Error(d.error || ('HTTP ' + res.status));
+
+      const stepBits = (d.steps || []).map(s => {
+        const icon = s.status === 'SUCCEED' ? '✓' : s.status === 'FAILED' ? '✗' : s.status === 'RUNNING' ? '⏳' : '·';
+        return `${icon} ${s.name}`;
+      });
+      lastStepLine = stepBits.join(' → ') || d.status || '';
+
+      if (TERMINAL.has(d.status)) {
+        if (d.status === 'SUCCEED') {
+          status.style.color = 'var(--ok, #4ade80)';
+          status.innerHTML = `✅ <strong>Deploy SUCCEEDED</strong> — <a href="${escapeAttr(url)}" target="_blank" rel="noopener">${escapeHtml(url)}</a> · <a href="${escapeAttr(consoleUrl)}" target="_blank" rel="noopener">AWS console</a><br><span style="font-size:11px; color:var(--muted);">${escapeHtml(lastStepLine)}</span>`;
+        } else {
+          // Find the failed step's reason
+          const failedStep = (d.steps || []).find(s => s.status === 'FAILED');
+          const reason = (failedStep && failedStep.statusReason) || d.statusUpdateReason || '(no reason returned by AWS)';
+          const logUrl = failedStep && failedStep.logUrl ? failedStep.logUrl : null;
+          status.style.color = 'var(--danger)';
+          status.innerHTML = `❌ <strong>Deploy ${escapeHtml(d.status)}</strong> at step <strong>${escapeHtml((failedStep && failedStep.name) || '?')}</strong><br>
+            <span style="font-size:12px;">Reason: ${escapeHtml(reason)}</span><br>
+            <span style="font-size:11px; color:var(--muted);">${escapeHtml(lastStepLine)}</span><br>
+            ${logUrl ? `<a href="${escapeAttr(logUrl)}" target="_blank" rel="noopener" style="font-size:12px;">📄 Open build log</a> · ` : ''}<a href="${escapeAttr(consoleUrl)}" target="_blank" rel="noopener" style="font-size:12px;">AWS console</a>`;
+        }
+        return;
+      }
+
+      // Still in progress — keep user informed
+      const elapsed = Math.floor((Date.now() - startedAt) / 1000);
+      status.style.color = 'var(--muted)';
+      status.innerHTML = `⏳ <strong>${escapeHtml(d.status || 'RUNNING')}</strong> (${elapsed}s elapsed) — <a href="${escapeAttr(consoleUrl)}" target="_blank" rel="noopener">live in AWS console</a><br><span style="font-size:11px;">${escapeHtml(lastStepLine)}</span>`;
+    } catch (e) {
+      // Network blip — keep trying
+      status.style.color = 'var(--muted)';
+      status.textContent = '⏳ Polling… (last error: ' + (e.message || 'network') + ')';
+    }
+  }
+  // Hit timeout
+  status.style.color = 'var(--muted)';
+  status.innerHTML = `⌛ Still building after 10 minutes. <a href="${escapeAttr(consoleUrl)}" target="_blank" rel="noopener">Check AWS console</a> directly.`;
+}
+
 async function deleteFromAmplify() {
   const appId = document.getElementById('f_appname').value.trim();
   const region = document.getElementById('f_region').value;
@@ -2000,8 +2060,20 @@ async function deployToAmplify() {
     if (data.url) document.getElementById('f_website').value = data.url;
     document.getElementById('f_status').value = 'Live';
 
-    status.style.color = 'var(--ok, #4ade80)';
-    status.innerHTML = `✓ Build started — <a href="${escapeAttr(data.url)}" target="_blank" rel="noopener">${escapeHtml(data.url)}</a> · <a href="${escapeAttr(data.consoleUrl)}" target="_blank" rel="noopener">AWS console</a> (job ${escapeHtml(data.jobId || '')})`;
+    status.style.color = 'var(--accent, #4ade80)';
+    status.innerHTML = `⏳ Build started — <a href="${escapeAttr(data.url)}" target="_blank" rel="noopener">${escapeHtml(data.url)}</a> · <a href="${escapeAttr(data.consoleUrl)}" target="_blank" rel="noopener">AWS console</a> (job ${escapeHtml(data.jobId || '')}). Polling status…`;
+
+    // Auto-poll job status every 8 seconds until it ends (SUCCEED/FAILED/CANCELLED) or 10 min timeout
+    if (data.jobId) {
+      pollAmplifyJob({
+        appId: data.appId,
+        region,
+        branch,
+        jobId: data.jobId,
+        url: data.url,
+        consoleUrl: data.consoleUrl,
+      });
+    }
   } catch (e) {
     status.style.color = 'var(--danger)';
     status.textContent = '✗ ' + (e.message || 'Deploy failed');

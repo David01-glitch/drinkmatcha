@@ -37,6 +37,59 @@ $branch        = trim($input['branch'] ?? 'main') ?: 'main';
 $nameOverride  = trim($input['name'] ?? '');
 $existingAppId = trim($input['appId'] ?? '');
 
+// --- STATUS action: poll a deployment job's status ---
+if ($action === 'status') {
+  $appId = trim($input['appId'] ?? '');
+  $jobId = trim($input['jobId'] ?? '');
+  $branchName = trim($input['branch'] ?? 'main') ?: 'main';
+  if (!$appId || !$jobId) {
+    http_response_code(400);
+    echo json_encode(['error' => 'appId, jobId required']);
+    exit;
+  }
+  try {
+    $client = new Aws\Amplify\AmplifyClient([
+      'region'      => $region,
+      'version'     => 'latest',
+      'credentials' => ['key' => $awsKey, 'secret' => $awsSecret],
+    ]);
+    $res = $client->getJob([
+      'appId'      => $appId,
+      'branchName' => $branchName,
+      'jobId'      => $jobId,
+    ]);
+    $summary = $res['job']['summary'] ?? [];
+    $steps = [];
+    foreach (($res['job']['steps'] ?? []) as $s) {
+      $steps[] = [
+        'name'         => $s['stepName'] ?? null,
+        'status'       => $s['status'] ?? null,
+        'statusReason' => $s['statusReason'] ?? null,
+        'startTime'    => isset($s['startTime']) ? $s['startTime']->format(DATE_ATOM) : null,
+        'endTime'      => isset($s['endTime']) ? $s['endTime']->format(DATE_ATOM) : null,
+        'logUrl'       => $s['logUrl'] ?? null,
+      ];
+    }
+    echo json_encode([
+      'status'             => $summary['status'] ?? null,         // PENDING | PROVISIONING | RUNNING | FAILED | SUCCEED | CANCELLING | CANCELLED
+      'jobId'              => $summary['jobId'] ?? $jobId,
+      'commitMessage'      => $summary['commitMessage'] ?? null,
+      'startTime'          => isset($summary['startTime']) ? $summary['startTime']->format(DATE_ATOM) : null,
+      'endTime'            => isset($summary['endTime']) ? $summary['endTime']->format(DATE_ATOM) : null,
+      'statusUpdateReason' => $summary['statusUpdateReason'] ?? null,
+      'steps'              => $steps,
+    ]);
+    exit;
+  } catch (Aws\Exception\AwsException $e) {
+    http_response_code(500);
+    echo json_encode([
+      'error' => $e->getAwsErrorMessage() ?: $e->getMessage(),
+      'code'  => $e->getAwsErrorCode(),
+    ]);
+    exit;
+  }
+}
+
 // --- LIST action: list Amplify apps across regions ---
 if ($action === 'list') {
   $regionsToCheck = $input['regions'] ?? [
