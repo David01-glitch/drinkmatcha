@@ -1735,6 +1735,15 @@ const REGION_LABELS = {
 function regionLabel(code) {
   return REGION_LABELS[code] ? `${REGION_LABELS[code]} (${code})` : code;
 }
+// Extract just the country/place name from a region (no flag, no AWS code).
+// "🇸🇬 Singapore" -> "Singapore"
+// "🇮🇳 India · Mumbai" -> "India · Mumbai"
+// "🇺🇸 USA · N. Virginia" -> "USA · N. Virginia"
+function regionCountry(code) {
+  const label = REGION_LABELS[code];
+  if (!label) return code;
+  return label.replace(/^[\u{1F1E6}-\u{1F1FF}]{2}\s*/u, '').trim();
+}
 
 async function refreshRegionUsage() {
   const sel = document.getElementById('f_region');
@@ -2128,6 +2137,11 @@ async function deployToAmplify() {
     document.getElementById('f_appname').value = data.appId;
     if (data.url) document.getElementById('f_website').value = data.url;
     document.getElementById('f_status').value = 'Live';
+
+    // Auto-fill Feedback/Notes with the deploy region's country (only if empty,
+    // so we don't trample over any notes the user already typed).
+    const fb = document.getElementById('f_feedback');
+    if (fb && !fb.value.trim()) fb.value = regionCountry(region);
 
     status.style.color = 'var(--accent, #4ade80)';
     status.innerHTML = `⏳ Build started — <a href="${escapeAttr(data.url)}" target="_blank" rel="noopener">${escapeHtml(data.url)}</a> · <a href="${escapeAttr(data.consoleUrl)}" target="_blank" rel="noopener">AWS console</a> (job ${escapeHtml(data.jobId || '')}). Polling status…`;
