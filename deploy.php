@@ -37,6 +37,49 @@ $branch        = trim($input['branch'] ?? 'main') ?: 'main';
 $nameOverride  = trim($input['name'] ?? '');
 $existingAppId = trim($input['appId'] ?? '');
 
+// --- LIST action: list Amplify apps across regions ---
+if ($action === 'list') {
+  $regionsToCheck = $input['regions'] ?? [
+    'us-east-1','us-east-2','us-west-2',
+    'eu-west-1','eu-central-1',
+    'ap-south-1','ap-southeast-1','ap-northeast-1',
+  ];
+  $allApps = [];
+  $errors = [];
+  foreach ($regionsToCheck as $r) {
+    try {
+      $client = new Aws\Amplify\AmplifyClient([
+        'region'      => $r,
+        'version'     => 'latest',
+        'credentials' => ['key' => $awsKey, 'secret' => $awsSecret],
+      ]);
+      $next = null;
+      do {
+        $params = ['maxResults' => 100];
+        if ($next) $params['nextToken'] = $next;
+        $res = $client->listApps($params);
+        foreach (($res['apps'] ?? []) as $a) {
+          $allApps[] = [
+            'appId'         => $a['appId'] ?? null,
+            'name'          => $a['name'] ?? null,
+            'region'        => $r,
+            'defaultDomain' => $a['defaultDomain'] ?? null,
+            'repository'    => $a['repository'] ?? null,
+            'platform'      => $a['platform'] ?? null,
+            'createTime'    => isset($a['createTime']) ? $a['createTime']->format(DATE_ATOM) : null,
+            'updateTime'    => isset($a['updateTime']) ? $a['updateTime']->format(DATE_ATOM) : null,
+          ];
+        }
+        $next = $res['nextToken'] ?? null;
+      } while ($next);
+    } catch (Aws\Exception\AwsException $e) {
+      $errors[$r] = $e->getAwsErrorMessage() ?: $e->getMessage();
+    }
+  }
+  echo json_encode(['apps' => $allApps, 'errors' => $errors]);
+  exit;
+}
+
 // --- DELETE action: remove an Amplify app entirely ---
 if ($action === 'delete') {
   if (!$existingAppId) {
