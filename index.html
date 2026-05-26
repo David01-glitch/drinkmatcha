@@ -1193,6 +1193,9 @@ async function showApp() {
   render();
   await loadSettings();
   await load();
+  // Hydrate shared Amplify region usage cache so dropdown filters instantly
+  // for everyone — even first-time visitors who never scanned themselves
+  loadSharedRegionUsage();
   // Seed snapshot so first poll doesn't fire notifications for existing rows
   seedSnapshot();
   render();
@@ -1848,18 +1851,25 @@ function regionCountry(code) {
   return label.replace(/^[\u{1F1E6}-\u{1F1FF}]{2}\s*/u, '').trim();
 }
 
-// Persisted across sessions so the dropdown can filter instantly on open,
-// even before the new scan completes.
-const REGION_USAGE_LS_KEY = 'amplifyRegionUsage_v1';
-let _regionUsageCache = (() => {
+// Region usage is shared across ALL users via Supabase 'settings' table
+// (key='amplify_region_usage'). When anyone scans, the result is saved
+// there. Other users opening the dashboard read the same cached view —
+// no need for each user to re-scan independently.
+const REGION_USAGE_KEY = 'amplify_region_usage';
+let _regionUsageCache = null;
+const REGION_USAGE_TTL_MS = 60_000;  // refresh from AWS if cache older than 60s
+
+// Load shared cache from Supabase on app boot
+async function loadSharedRegionUsage() {
   try {
-    const raw = localStorage.getItem(REGION_USAGE_LS_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    return parsed && parsed.apps ? parsed : null;
-  } catch { return null; }
-})();
-const REGION_USAGE_TTL_MS = 60_000;  // refresh if older than 60s
+    const v = await sbGetSetting(REGION_USAGE_KEY);
+    if (v && v.apps) _regionUsageCache = v;
+  } catch (e) { console.warn('shared region cache load failed:', e); }
+}
+async function saveSharedRegionUsage(cache) {
+  try { await sbSetSetting(REGION_USAGE_KEY, cache); }
+  catch (e) { console.warn('shared region cache save failed:', e); }
+}
 
 // AWS opt-in regions — disabled by default on new accounts. Pre-hide these
 // so the dropdown looks clean before the scan completes. If the scan later
@@ -1928,7 +1938,7 @@ async function refreshRegionUsage(force = false) {
       data = await res.json();
       if (!res.ok || data.error) throw new Error(data.error || ('HTTP ' + res.status));
       _regionUsageCache = { ts: Date.now(), apps: data.apps || [], errors: data.errors || {} };
-      try { localStorage.setItem(REGION_USAGE_LS_KEY, JSON.stringify(_regionUsageCache)); } catch {}
+      saveSharedRegionUsage(_regionUsageCache); // sync to Supabase for other users
     }
     if (!data.errors && _regionUsageCache) data.errors = _regionUsageCache.errors || {};
 
@@ -2177,7 +2187,7 @@ async function deleteAmplifyAppFromList(appId, region, name) {
     status.textContent = `✓ Deleted ${appId} from ${region}${linked.length ? ` · cleared ${linked.length} linked dashboard row(s)` : ''}`;
 
     _regionUsageCache = null; // bust cache after delete
-    try { localStorage.removeItem(REGION_USAGE_LS_KEY); } catch {}
+    saveSharedRegionUsage(null);
 
     logAuditEvent('delete', {
       appId, appName: name, region,
@@ -2358,7 +2368,7 @@ async function deleteFromAmplify() {
     status.textContent = `✓ Deleted ${data.deletedAppId} from ${region}. You can deploy a fresh build now.`;
 
     _regionUsageCache = null; // bust cache after delete
-    try { localStorage.removeItem(REGION_USAGE_LS_KEY); } catch {}
+    saveSharedRegionUsage(null);
 
     logAuditEvent('delete', {
       appId: data.deletedAppId, appName: document.getElementById('f_topic').value.trim() || data.deletedAppId,
@@ -2424,9 +2434,9 @@ async function deployToAmplify() {
     const fb = document.getElementById('f_feedback');
     if (fb && !fb.value.trim()) fb.value = regionCountry(region);
 
-    // New app created → bust region-usage cache so next dropdown open is accurate
+    // New app created → bust shared region-usage cache so all users see updated counts
     _regionUsageCache = null;
-    try { localStorage.removeItem(REGION_USAGE_LS_KEY); } catch {}
+    saveSharedRegionUsage(null);
 
     // Audit log
     logAuditEvent('deploy', {
