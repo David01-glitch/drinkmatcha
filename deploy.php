@@ -171,7 +171,8 @@ $owner = $m[1];
 $repoName = $m[2];
 $zipUrl = "https://github.com/$owner/$repoName/archive/refs/heads/" . rawurlencode($branch) . ".zip";
 
-$githubToken = getenv('GITHUB_TOKEN'); // optional — when set, use repo-connected mode
+$githubToken    = getenv('GITHUB_TOKEN');             // optional — when set, use repo-connected mode
+$serviceRoleArn = getenv('AMPLIFY_SERVICE_ROLE_ARN'); // optional — required for builds in repo-connected mode
 
 try {
   $client = new Aws\Amplify\AmplifyClient([
@@ -189,14 +190,17 @@ try {
       // Repo-connected mode: Amplify clones the repo, auto-detects the
       // framework (Vite/React/Next/Astro/static/etc.) and runs the build.
       // This works for both prebuilt static sites and modern JS apps.
-      $createRes = $client->createApp([
+      $createParams = [
         'name'        => $nameOverride ?: $repoName,
         'repository'  => "https://github.com/$owner/$repoName",
         'accessToken' => $githubToken,
         'platform'    => 'WEB',
         'enableBranchAutoBuild' => true,
-        // Let Amplify auto-detect buildSpec; we don't override it here.
-      ]);
+      ];
+      if ($serviceRoleArn) {
+        $createParams['iamServiceRoleArn'] = $serviceRoleArn;
+      }
+      $createRes = $client->createApp($createParams);
     } else {
       // Manual mode (no token configured): static-site zip upload only.
       $createRes = $client->createApp([
@@ -218,6 +222,10 @@ try {
     $defaultDomain = $g['app']['defaultDomain'];
     // If existing app is repo-connected, stay in repo mode regardless of token
     if (!empty($g['app']['repository'])) $usingRepoMode = true;
+    // If the app has no service role but we now have one configured, patch it in
+    if ($usingRepoMode && $serviceRoleArn && empty($g['app']['iamServiceRoleArn'])) {
+      try { $client->updateApp(['appId' => $appId, 'iamServiceRoleArn' => $serviceRoleArn]); } catch (Exception $e) {}
+    }
 
     try {
       $client->getBranch(['appId' => $appId, 'branchName' => $branch]);
