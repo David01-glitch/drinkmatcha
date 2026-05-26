@@ -1848,17 +1848,40 @@ function regionCountry(code) {
   return label.replace(/^[\u{1F1E6}-\u{1F1FF}]{2}\s*/u, '').trim();
 }
 
-let _regionUsageCache = null;        // { ts, apps }
+let _regionUsageCache = null;        // { ts, apps, errors }
 const REGION_USAGE_TTL_MS = 60_000;  // refresh if older than 60s
+
+// AWS opt-in regions — disabled by default on new accounts. Pre-hide these
+// so the dropdown looks clean before the scan completes. If the scan later
+// finds apps in one of these (i.e. user has enabled it), we unhide it.
+const OPT_IN_REGIONS = new Set([
+  'eu-south-1', 'eu-south-2', 'eu-central-2',
+  'me-south-1', 'me-central-1',
+  'af-south-1',
+  'ap-east-1', 'ap-east-2',
+  'ap-south-2',
+  'ap-southeast-3', 'ap-southeast-4', 'ap-southeast-5', 'ap-southeast-7',
+  'il-central-1',
+  'mx-central-1',
+]);
+
 async function refreshRegionUsage(force = false) {
   const sel = document.getElementById('f_region');
   const hint = document.getElementById('regionLoadHint');
   if (!sel) return;
 
-  // Reset to base labels first
+  // Reset to base labels + pre-hide opt-in regions immediately so dropdown
+  // doesn't briefly show unusable options while the scan is in flight
   for (const opt of sel.options) {
     opt.textContent = opt.dataset.label || opt.textContent;
     opt.disabled = false;
+    opt.style.display = OPT_IN_REGIONS.has(opt.value) ? 'none' : '';
+  }
+  // If the currently-selected region is now hidden, jump to first visible
+  if (sel.options[sel.selectedIndex] && sel.options[sel.selectedIndex].style.display === 'none') {
+    for (const opt of sel.options) {
+      if (opt.style.display !== 'none') { sel.value = opt.value; break; }
+    }
   }
 
   try {
@@ -1893,12 +1916,13 @@ async function refreshRegionUsage(force = false) {
       const err = errors[r] || '';
       const notEnabled = /invalid|UnauthorizedOperation|OptInRequired|security token/i.test(err);
 
-      // Reset display in case it was hidden before
-      opt.style.display = '';
+      // Un-hide if scan succeeded (means region IS enabled even if it's
+      // normally opt-in — user has activated it)
       opt.disabled = false;
+      if (!notEnabled) opt.style.display = '';
 
       if (notEnabled) {
-        // Hide entirely — region not enabled on this AWS account
+        // Stay hidden — region not enabled on this AWS account
         opt.style.display = 'none';
         opt.disabled = true;
         hiddenCount++;
