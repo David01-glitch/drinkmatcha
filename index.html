@@ -1874,20 +1874,31 @@ async function refreshRegionUsage(force = false) {
       });
       data = await res.json();
       if (!res.ok || data.error) throw new Error(data.error || ('HTTP ' + res.status));
-      _regionUsageCache = { ts: Date.now(), apps: data.apps || [] };
+      _regionUsageCache = { ts: Date.now(), apps: data.apps || [], errors: data.errors || {} };
     }
+    if (!data.errors && _regionUsageCache) data.errors = _regionUsageCache.errors || {};
 
     const counts = {};
     for (const a of (data.apps || [])) {
       counts[a.region] = (counts[a.region] || 0) + 1;
     }
 
+    const errors = data.errors || {};
     let firstEmpty = null;
     for (const opt of sel.options) {
       const r = opt.value;
       const used = counts[r] || 0;
       const base = opt.dataset.label || opt.textContent;
-      if (used === 0) {
+      const err = errors[r] || '';
+      const notEnabled = /invalid|UnauthorizedOperation|OptInRequired|security token/i.test(err);
+
+      if (notEnabled) {
+        opt.textContent = `${base}  ·  🚫 region not enabled in AWS account`;
+        opt.disabled = true;
+      } else if (err) {
+        opt.textContent = `${base}  ·  ⚠ ${err.slice(0, 40)}`;
+        opt.disabled = true;
+      } else if (used === 0) {
         opt.textContent = `${base}  ·  ✓ empty`;
         if (!firstEmpty) firstEmpty = r;
       } else if (used >= AMPLIFY_APPS_PER_REGION_QUOTA) {
@@ -2367,7 +2378,14 @@ async function deployToAmplify() {
     }
   } catch (e) {
     status.style.color = 'var(--danger)';
-    status.textContent = '✗ ' + (e.message || 'Deploy failed');
+    const msg = e.message || 'Deploy failed';
+    if (/invalid|OptInRequired|security token/i.test(msg)) {
+      status.innerHTML = `✗ <strong>${escapeHtml(region)}</strong> is an opt-in AWS region that's not enabled on your account.<br>
+        Either enable it: <a href="https://us-east-1.console.aws.amazon.com/billing/home#/account" target="_blank" rel="noopener">AWS Account Settings → AWS Regions → Enable</a> (takes a few minutes to activate),<br>
+        or just pick a different region marked <strong>✓ empty</strong> in the dropdown.`;
+    } else {
+      status.textContent = '✗ ' + msg;
+    }
   } finally {
     btn.disabled = false;
     btn.textContent = '🚀 Deploy to AWS Amplify';
