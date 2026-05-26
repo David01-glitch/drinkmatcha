@@ -751,31 +751,62 @@
 <div class="modal-bg" id="amplifyModal">
   <div class="modal" style="max-width: 1100px;">
     <div class="modal-header">
-      <h2>☁ AWS Amplify Apps</h2>
+      <h2>☁ AWS Amplify</h2>
       <div style="display:flex; gap:8px; align-items:center;">
-        <button class="btn" type="button" onclick="loadAmplifyApps()" id="amplifyReloadBtn">↻ Refresh</button>
+        <button class="btn" type="button" onclick="loadAmplifyTab()" id="amplifyReloadBtn">↻ Refresh</button>
         <button class="icon-btn" onclick="closeAmplifyManager()">✕</button>
       </div>
     </div>
     <div class="modal-body">
-      <div id="amplifyManagerStatus" style="font-size:13px; color:var(--muted); margin-bottom:10px;">Click Refresh to load apps from all regions.</div>
-      <div id="amplifyTableWrap" style="overflow:auto; max-height: 65vh;">
-        <table class="tbl" style="width:100%;">
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Region</th>
-              <th>App ID</th>
-              <th>URL</th>
-              <th>Repository</th>
-              <th>Created</th>
-              <th style="text-align:right;">Action</th>
-            </tr>
-          </thead>
-          <tbody id="amplifyTableBody">
-            <tr><td colspan="7" style="text-align:center; color:var(--muted); padding:30px;">No data yet — click ↻ Refresh.</td></tr>
-          </tbody>
-        </table>
+      <!-- Tab switcher -->
+      <div style="display:flex; gap:8px; margin-bottom:14px; border-bottom:1px solid var(--border, #2a2a3a); padding-bottom:8px;">
+        <button class="btn" id="tabAppsBtn" onclick="switchAmplifyTab('apps')" style="background:var(--accent, #4ade80); color:#000;">☁ Apps</button>
+        <button class="btn" id="tabActivityBtn" onclick="switchAmplifyTab('activity')">📋 Activity Log</button>
+      </div>
+
+      <!-- APPS TAB -->
+      <div id="amplifyTabApps">
+        <div id="amplifyManagerStatus" style="font-size:13px; color:var(--muted); margin-bottom:10px;">Click Refresh to load apps from all regions.</div>
+        <div id="amplifyTableWrap" style="overflow:auto; max-height: 60vh;">
+          <table class="tbl" style="width:100%;">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Region</th>
+                <th>App ID</th>
+                <th>URL</th>
+                <th>Repository</th>
+                <th>Created</th>
+                <th style="text-align:right;">Action</th>
+              </tr>
+            </thead>
+            <tbody id="amplifyTableBody">
+              <tr><td colspan="7" style="text-align:center; color:var(--muted); padding:30px;">No data yet — click ↻ Refresh.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ACTIVITY TAB -->
+      <div id="amplifyTabActivity" style="display:none;">
+        <div id="auditStatus" style="font-size:13px; color:var(--muted); margin-bottom:10px;">Loading activity log…</div>
+        <div style="overflow:auto; max-height: 60vh;">
+          <table class="tbl" style="width:100%;">
+            <thead>
+              <tr>
+                <th>When</th>
+                <th>Who</th>
+                <th>Action</th>
+                <th>App / Repo</th>
+                <th>Region</th>
+                <th>From (IP · location)</th>
+              </tr>
+            </thead>
+            <tbody id="auditTableBody">
+              <tr><td colspan="6" style="text-align:center; color:var(--muted); padding:30px;">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
     <div class="modal-footer">
@@ -953,6 +984,58 @@ async function sbLoadAll() {
   const res = await sb('/websites?select=*&order=updated.desc');
   return await res.json();
 }
+// --- Amplify audit log: who did what, when, from where ---
+let _geoCache = null;
+async function getClientGeo() {
+  if (_geoCache) return _geoCache;
+  try {
+    const r = await fetch('https://ipapi.co/json/');
+    if (!r.ok) throw new Error('geo http ' + r.status);
+    const d = await r.json();
+    _geoCache = {
+      ip: d.ip || '',
+      city: d.city || '',
+      region: d.region || '',
+      country: d.country_name || d.country || '',
+      org: d.org || '',
+    };
+  } catch (e) {
+    _geoCache = { ip: '', city: '', region: '', country: '', org: '' };
+  }
+  return _geoCache;
+}
+async function sbAuditInsert(row) {
+  return sb('/amplify_audit', {
+    method: 'POST',
+    prefer: 'return=minimal',
+    body: JSON.stringify(row),
+  });
+}
+async function sbAuditLoad(limit = 100) {
+  const res = await sb('/amplify_audit?select=*&order=ts.desc&limit=' + limit);
+  return await res.json();
+}
+async function logAuditEvent(action, info) {
+  try {
+    const geo = await getClientGeo();
+    const locParts = [geo.city, geo.region, geo.country].filter(Boolean);
+    const row = {
+      author: (settings && settings.author) || 'Unknown',
+      action,                       // 'deploy' | 'delete'
+      app_id: info.appId || null,
+      app_name: info.appName || null,
+      region: info.region || null,
+      repo: info.repo || null,
+      ip: geo.ip || null,
+      location: locParts.join(', ') || null,
+      details: info.details || {},
+    };
+    await sbAuditInsert(row);
+  } catch (e) {
+    console.warn('Audit log failed (non-fatal):', e);
+  }
+}
+
 async function sbUpsert(rec) {
   return sb('/websites', {
     method: 'POST',
@@ -1807,12 +1890,84 @@ async function refreshRegionUsage() {
 }
 
 // --- Amplify Manager: list + delete across regions, sync with dashboard rows ---
+let _amplifyTab = 'apps';
 function openAmplifyManager() {
   document.getElementById('amplifyModal').classList.add('open');
-  loadAmplifyApps();
+  switchAmplifyTab('apps');
 }
 function closeAmplifyManager() {
   document.getElementById('amplifyModal').classList.remove('open');
+}
+function switchAmplifyTab(which) {
+  _amplifyTab = which;
+  const apps = document.getElementById('amplifyTabApps');
+  const act = document.getElementById('amplifyTabActivity');
+  const appsBtn = document.getElementById('tabAppsBtn');
+  const actBtn = document.getElementById('tabActivityBtn');
+  if (which === 'apps') {
+    apps.style.display = '';
+    act.style.display = 'none';
+    appsBtn.style.background = 'var(--accent, #4ade80)';
+    appsBtn.style.color = '#000';
+    actBtn.style.background = '';
+    actBtn.style.color = '';
+    loadAmplifyApps();
+  } else {
+    apps.style.display = 'none';
+    act.style.display = '';
+    actBtn.style.background = 'var(--accent, #4ade80)';
+    actBtn.style.color = '#000';
+    appsBtn.style.background = '';
+    appsBtn.style.color = '';
+    loadAuditLog();
+  }
+}
+// Called by ↻ Refresh — refreshes whichever tab is active
+function loadAmplifyTab() {
+  if (_amplifyTab === 'activity') loadAuditLog();
+  else loadAmplifyApps();
+}
+
+async function loadAuditLog() {
+  const status = document.getElementById('auditStatus');
+  const body = document.getElementById('auditTableBody');
+  status.style.color = 'var(--muted)';
+  status.textContent = 'Loading recent activity…';
+  body.innerHTML = '<tr><td colspan="6" style="text-align:center; color:var(--muted); padding:30px;">Loading…</td></tr>';
+  try {
+    const rows = await sbAuditLoad(200);
+    if (!rows.length) {
+      body.innerHTML = '<tr><td colspan="6" style="text-align:center; color:var(--muted); padding:30px;">No activity logged yet. Deploys and deletes will show up here.</td></tr>';
+      status.textContent = '0 events';
+      return;
+    }
+    body.innerHTML = rows.map(r => {
+      const when = r.ts ? new Date(r.ts).toLocaleString() : '-';
+      const actIcon = r.action === 'deploy' ? '🚀' : r.action === 'delete' ? '🗑' : '·';
+      const actColor = r.action === 'delete' ? 'var(--danger)' : 'var(--accent, #4ade80)';
+      const target = [];
+      if (r.app_name) target.push(`<strong>${escapeHtml(r.app_name)}</strong>`);
+      if (r.app_id) target.push(`<span style="font-family:monospace; font-size:11px; color:var(--muted);">${escapeHtml(r.app_id)}</span>`);
+      if (r.repo) target.push(`<a href="${escapeAttr(r.repo)}" target="_blank" rel="noopener" style="font-size:12px;">${escapeHtml(shortUrl(r.repo))}</a>`);
+      const region = r.region ? `${escapeHtml(regionCountry(r.region))} <span style="font-family:monospace; font-size:11px; color:var(--muted);">(${escapeHtml(r.region)})</span>` : '-';
+      const ipLoc = [r.ip, r.location].filter(Boolean).join(' · ') || '-';
+      return `
+        <tr>
+          <td style="font-size:12px;">${escapeHtml(when)}</td>
+          <td><strong>${escapeHtml(r.author || 'Unknown')}</strong></td>
+          <td style="color:${actColor};">${actIcon} ${escapeHtml((r.action || '').toUpperCase())}</td>
+          <td>${target.join('<br>')}</td>
+          <td>${region}</td>
+          <td style="font-size:11px; color:var(--muted);">${escapeHtml(ipLoc)}</td>
+        </tr>`;
+    }).join('');
+    status.style.color = 'var(--ok, #4ade80)';
+    status.textContent = `✓ ${rows.length} event(s) loaded`;
+  } catch (e) {
+    status.style.color = 'var(--danger)';
+    status.textContent = '⚠ ' + (e.message || 'Failed to load activity. Did you run the SQL to create the amplify_audit table?');
+    body.innerHTML = '';
+  }
 }
 
 async function loadAmplifyApps() {
@@ -1911,6 +2066,11 @@ async function deleteAmplifyAppFromList(appId, region, name) {
     const status = document.getElementById('amplifyManagerStatus');
     status.style.color = 'var(--ok, #4ade80)';
     status.textContent = `✓ Deleted ${appId} from ${region}${linked.length ? ` · cleared ${linked.length} linked dashboard row(s)` : ''}`;
+
+    logAuditEvent('delete', {
+      appId, appName: name, region,
+      details: { source: 'amplify-manager', linkedRowsCleared: linked.length },
+    });
 
     // Update count
     const remaining = document.querySelectorAll('#amplifyTableBody tr[data-appid]').length;
@@ -2084,6 +2244,12 @@ async function deleteFromAmplify() {
 
     status.style.color = 'var(--ok, #4ade80)';
     status.textContent = `✓ Deleted ${data.deletedAppId} from ${region}. You can deploy a fresh build now.`;
+
+    logAuditEvent('delete', {
+      appId: data.deletedAppId, appName: document.getElementById('f_topic').value.trim() || data.deletedAppId,
+      region,
+      details: { source: 'form-button' },
+    });
   } catch (e) {
     status.style.color = 'var(--danger)';
     status.textContent = '✗ ' + (e.message || 'Delete failed');
@@ -2142,6 +2308,13 @@ async function deployToAmplify() {
     // so we don't trample over any notes the user already typed).
     const fb = document.getElementById('f_feedback');
     if (fb && !fb.value.trim()) fb.value = regionCountry(region);
+
+    // Audit log
+    logAuditEvent('deploy', {
+      appId: data.appId, appName: (document.getElementById('f_topic').value.trim() || existingAppId || data.appId),
+      region, repo,
+      details: { url: data.url, jobId: data.jobId, branch, mode: data.mode || 'manual-zip' },
+    });
 
     status.style.color = 'var(--accent, #4ade80)';
     status.innerHTML = `⏳ Build started — <a href="${escapeAttr(data.url)}" target="_blank" rel="noopener">${escapeHtml(data.url)}</a> · <a href="${escapeAttr(data.consoleUrl)}" target="_blank" rel="noopener">AWS console</a> (job ${escapeHtml(data.jobId || '')}). Polling status…`;
