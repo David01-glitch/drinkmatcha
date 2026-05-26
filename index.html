@@ -779,6 +779,29 @@
       </div>
       <div class="grid-2">
         <div class="field">
+          <label>AWS Region <span style="color:var(--muted); text-transform:none; letter-spacing:0; font-weight:400;">— for Amplify deploy</span></label>
+          <select id="f_region">
+            <option value="us-east-1">us-east-1 (N. Virginia)</option>
+            <option value="us-east-2">us-east-2 (Ohio)</option>
+            <option value="us-west-2">us-west-2 (Oregon)</option>
+            <option value="eu-west-1">eu-west-1 (Ireland)</option>
+            <option value="eu-central-1">eu-central-1 (Frankfurt)</option>
+            <option value="ap-south-1">ap-south-1 (Mumbai)</option>
+            <option value="ap-southeast-1">ap-southeast-1 (Singapore)</option>
+            <option value="ap-northeast-1">ap-northeast-1 (Tokyo)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Branch</label>
+          <input id="f_branch" placeholder="main" value="main"/>
+        </div>
+      </div>
+      <div class="field">
+        <button class="btn primary" type="button" onclick="deployToAmplify()" id="amplifyBtn">🚀 Deploy to AWS Amplify</button>
+        <div id="amplifyStatus" style="font-size:12px; color:var(--muted); margin-top:6px;"></div>
+      </div>
+      <div class="grid-2">
+        <div class="field">
           <label>App Name (on hosting)</label>
           <input id="f_appname" placeholder="e.g. nost-p"/>
         </div>
@@ -1150,6 +1173,11 @@ function openModal(id) {
     if (lbl) lbl.remove();
   });
   document.getElementById('detectStatus').textContent = '';
+  document.getElementById('amplifyStatus').textContent = '';
+  // Region/branch are deploy-time inputs, not stored per row — reset to defaults
+  const regionEl = document.getElementById('f_region');
+  if (regionEl && !regionEl.value) regionEl.value = 'us-east-1';
+  document.getElementById('f_branch').value = 'main';
 
   // Populate Topic Name suggestions from existing records (unique, most-recent first)
   const dl = document.getElementById('topicSuggestions');
@@ -1631,6 +1659,62 @@ document.addEventListener('click', (e) => {
 });
 
 // ---------- AUTO-DETECT ----------
+async function deployToAmplify() {
+  const repo = document.getElementById('f_github').value.trim();
+  const region = document.getElementById('f_region').value;
+  const branch = (document.getElementById('f_branch').value.trim() || 'main');
+  const nameField = document.getElementById('f_appname').value.trim();
+  const existingAppId = document.getElementById('f_platform').value === 'AWS Amplify' && nameField.startsWith('d')
+    ? nameField : ''; // Amplify app IDs start with 'd' — reuse if user kept it
+  const btn = document.getElementById('amplifyBtn');
+  const status = document.getElementById('amplifyStatus');
+
+  if (!repo) {
+    status.style.color = 'var(--danger)';
+    status.textContent = 'Paste a GitHub URL first.';
+    return;
+  }
+  if (!/^https?:\/\/github\.com\/[^/]+\/[^/]+/i.test(repo)) {
+    status.style.color = 'var(--danger)';
+    status.textContent = 'Must be a github.com URL.';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = '⏳ Deploying…';
+  status.style.color = 'var(--muted)';
+  status.textContent = 'Calling AWS Amplify (creating app, branch, starting build)…';
+
+  try {
+    const res = await fetch('deploy.php', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        repo, region, branch,
+        name: document.getElementById('f_topic').value.trim() || undefined,
+        appId: existingAppId || undefined,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || ('HTTP ' + res.status));
+
+    // Save what we learned back into the form so it persists with the row
+    document.getElementById('f_platform').value = 'AWS Amplify';
+    document.getElementById('f_appname').value = data.appId;
+    if (data.url) document.getElementById('f_website').value = data.url;
+    document.getElementById('f_status').value = 'Live';
+
+    status.style.color = 'var(--ok, #4ade80)';
+    status.innerHTML = `✓ Build started — <a href="${escapeAttr(data.url)}" target="_blank" rel="noopener">${escapeHtml(data.url)}</a> · <a href="${escapeAttr(data.consoleUrl)}" target="_blank" rel="noopener">AWS console</a> (job ${escapeHtml(data.jobId || '')})`;
+  } catch (e) {
+    status.style.color = 'var(--danger)';
+    status.textContent = '✗ ' + (e.message || 'Deploy failed');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🚀 Deploy to AWS Amplify';
+  }
+}
+
 async function autoDetect() {
   const url = document.getElementById('f_website').value.trim();
   const status = document.getElementById('detectStatus');
