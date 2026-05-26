@@ -1848,7 +1848,17 @@ function regionCountry(code) {
   return label.replace(/^[\u{1F1E6}-\u{1F1FF}]{2}\s*/u, '').trim();
 }
 
-let _regionUsageCache = null;        // { ts, apps, errors }
+// Persisted across sessions so the dropdown can filter instantly on open,
+// even before the new scan completes.
+const REGION_USAGE_LS_KEY = 'amplifyRegionUsage_v1';
+let _regionUsageCache = (() => {
+  try {
+    const raw = localStorage.getItem(REGION_USAGE_LS_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && parsed.apps ? parsed : null;
+  } catch { return null; }
+})();
 const REGION_USAGE_TTL_MS = 60_000;  // refresh if older than 60s
 
 // AWS opt-in regions — disabled by default on new accounts. Pre-hide these
@@ -1870,12 +1880,32 @@ async function refreshRegionUsage(force = false) {
   const hint = document.getElementById('regionLoadHint');
   if (!sel) return;
 
-  // Reset to base labels + pre-hide opt-in regions immediately so dropdown
-  // doesn't briefly show unusable options while the scan is in flight
+  // STEP 1 — Reset labels + apply instant filter from localStorage cache (if any)
+  // so the dropdown is already filtered the moment it opens, before the fresh
+  // scan completes. Without this, the user sees all 17 default regions for
+  // the 2-3s the scan takes.
+  const cachedCounts = {};
+  if (_regionUsageCache && _regionUsageCache.apps) {
+    for (const a of _regionUsageCache.apps) {
+      cachedCounts[a.region] = (cachedCounts[a.region] || 0) + 1;
+    }
+  }
+  const cachedErrors = (_regionUsageCache && _regionUsageCache.errors) || {};
   for (const opt of sel.options) {
-    opt.textContent = opt.dataset.label || opt.textContent;
+    const r = opt.value;
+    const base = opt.dataset.label || opt.textContent;
+    opt.textContent = base;
     opt.disabled = false;
-    opt.style.display = OPT_IN_REGIONS.has(opt.value) ? 'none' : '';
+    const used = cachedCounts[r] || 0;
+    const err = cachedErrors[r] || '';
+    const notEnabled = OPT_IN_REGIONS.has(r) || /invalid|UnauthorizedOperation|OptInRequired|security token/i.test(err);
+    if (notEnabled || err || used > 0) {
+      opt.style.display = 'none';
+      if (notEnabled || err) opt.disabled = true;
+    } else {
+      opt.style.display = '';
+      if (_regionUsageCache) opt.textContent = `${base}  ·  ✓ empty`;
+    }
   }
   // If the currently-selected region is now hidden, jump to first visible
   if (sel.options[sel.selectedIndex] && sel.options[sel.selectedIndex].style.display === 'none') {
@@ -1898,6 +1928,7 @@ async function refreshRegionUsage(force = false) {
       data = await res.json();
       if (!res.ok || data.error) throw new Error(data.error || ('HTTP ' + res.status));
       _regionUsageCache = { ts: Date.now(), apps: data.apps || [], errors: data.errors || {} };
+      try { localStorage.setItem(REGION_USAGE_LS_KEY, JSON.stringify(_regionUsageCache)); } catch {}
     }
     if (!data.errors && _regionUsageCache) data.errors = _regionUsageCache.errors || {};
 
@@ -2146,6 +2177,7 @@ async function deleteAmplifyAppFromList(appId, region, name) {
     status.textContent = `✓ Deleted ${appId} from ${region}${linked.length ? ` · cleared ${linked.length} linked dashboard row(s)` : ''}`;
 
     _regionUsageCache = null; // bust cache after delete
+    try { localStorage.removeItem(REGION_USAGE_LS_KEY); } catch {}
 
     logAuditEvent('delete', {
       appId, appName: name, region,
@@ -2326,6 +2358,7 @@ async function deleteFromAmplify() {
     status.textContent = `✓ Deleted ${data.deletedAppId} from ${region}. You can deploy a fresh build now.`;
 
     _regionUsageCache = null; // bust cache after delete
+    try { localStorage.removeItem(REGION_USAGE_LS_KEY); } catch {}
 
     logAuditEvent('delete', {
       appId: data.deletedAppId, appName: document.getElementById('f_topic').value.trim() || data.deletedAppId,
@@ -2393,6 +2426,7 @@ async function deployToAmplify() {
 
     // New app created → bust region-usage cache so next dropdown open is accurate
     _regionUsageCache = null;
+    try { localStorage.removeItem(REGION_USAGE_LS_KEY); } catch {}
 
     // Audit log
     logAuditEvent('deploy', {
