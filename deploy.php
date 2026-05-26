@@ -37,6 +37,39 @@ $branch        = trim($input['branch'] ?? 'main') ?: 'main';
 $nameOverride  = trim($input['name'] ?? '');
 $existingAppId = trim($input['appId'] ?? '');
 
+// --- DIAG action: report env vars + look up an app's service role ---
+if ($action === 'diag') {
+  $appId = trim($input['appId'] ?? '');
+  $diag = [
+    'env' => [
+      'AWS_ACCESS_KEY_ID'        => $awsKey ? ('set (…' . substr($awsKey, -4) . ')') : 'NOT SET',
+      'AWS_SECRET_ACCESS_KEY'    => $awsSecret ? 'set' : 'NOT SET',
+      'GITHUB_TOKEN'             => getenv('GITHUB_TOKEN') ? ('set (…' . substr(getenv('GITHUB_TOKEN'), -4) . ')') : 'NOT SET',
+      'AMPLIFY_SERVICE_ROLE_ARN' => getenv('AMPLIFY_SERVICE_ROLE_ARN') ?: 'NOT SET',
+    ],
+  ];
+  if ($appId) {
+    try {
+      $client = new Aws\Amplify\AmplifyClient([
+        'region' => $region, 'version' => 'latest',
+        'credentials' => ['key' => $awsKey, 'secret' => $awsSecret],
+      ]);
+      $g = $client->getApp(['appId' => $appId]);
+      $diag['app'] = [
+        'appId'             => $g['app']['appId'] ?? null,
+        'name'              => $g['app']['name'] ?? null,
+        'repository'        => $g['app']['repository'] ?? null,
+        'iamServiceRoleArn' => $g['app']['iamServiceRoleArn'] ?? '(none — this is the problem)',
+        'defaultDomain'     => $g['app']['defaultDomain'] ?? null,
+      ];
+    } catch (Aws\Exception\AwsException $e) {
+      $diag['app_error'] = $e->getAwsErrorMessage() ?: $e->getMessage();
+    }
+  }
+  echo json_encode($diag, JSON_PRETTY_PRINT);
+  exit;
+}
+
 // --- STATUS action: poll a deployment job's status ---
 if ($action === 'status') {
   $appId = trim($input['appId'] ?? '');
