@@ -818,17 +818,22 @@
       </div>
       <div class="grid-2">
         <div class="field">
-          <label>AWS Region <span style="color:var(--muted); text-transform:none; letter-spacing:0; font-weight:400;">— for Amplify deploy</span></label>
+          <label>AWS Region <span style="color:var(--muted); text-transform:none; letter-spacing:0; font-weight:400;">— ✓ = empty, number = apps used</span></label>
           <select id="f_region">
-            <option value="us-east-1">us-east-1 (N. Virginia)</option>
-            <option value="us-east-2">us-east-2 (Ohio)</option>
-            <option value="us-west-2">us-west-2 (Oregon)</option>
-            <option value="eu-west-1">eu-west-1 (Ireland)</option>
-            <option value="eu-central-1">eu-central-1 (Frankfurt)</option>
-            <option value="ap-south-1">ap-south-1 (Mumbai)</option>
-            <option value="ap-southeast-1">ap-southeast-1 (Singapore)</option>
-            <option value="ap-northeast-1">ap-northeast-1 (Tokyo)</option>
+            <option value="us-east-1"     data-label="🇺🇸 USA · N. Virginia (us-east-1)">🇺🇸 USA · N. Virginia (us-east-1)</option>
+            <option value="us-east-2"     data-label="🇺🇸 USA · Ohio (us-east-2)">🇺🇸 USA · Ohio (us-east-2)</option>
+            <option value="us-west-2"     data-label="🇺🇸 USA · Oregon (us-west-2)">🇺🇸 USA · Oregon (us-west-2)</option>
+            <option value="ca-central-1"  data-label="🇨🇦 Canada · Central (ca-central-1)">🇨🇦 Canada · Central (ca-central-1)</option>
+            <option value="eu-west-1"     data-label="🇮🇪 Ireland (eu-west-1)">🇮🇪 Ireland (eu-west-1)</option>
+            <option value="eu-west-2"     data-label="🇬🇧 UK · London (eu-west-2)">🇬🇧 UK · London (eu-west-2)</option>
+            <option value="eu-central-1"  data-label="🇩🇪 Germany · Frankfurt (eu-central-1)">🇩🇪 Germany · Frankfurt (eu-central-1)</option>
+            <option value="ap-south-1"    data-label="🇮🇳 India · Mumbai (ap-south-1)">🇮🇳 India · Mumbai (ap-south-1)</option>
+            <option value="ap-southeast-1" data-label="🇸🇬 Singapore (ap-southeast-1)">🇸🇬 Singapore (ap-southeast-1)</option>
+            <option value="ap-southeast-2" data-label="🇦🇺 Australia · Sydney (ap-southeast-2)">🇦🇺 Australia · Sydney (ap-southeast-2)</option>
+            <option value="ap-northeast-1" data-label="🇯🇵 Japan · Tokyo (ap-northeast-1)">🇯🇵 Japan · Tokyo (ap-northeast-1)</option>
+            <option value="ap-northeast-2" data-label="🇰🇷 S. Korea · Seoul (ap-northeast-2)">🇰🇷 S. Korea · Seoul (ap-northeast-2)</option>
           </select>
+          <div id="regionLoadHint" style="font-size:11px; color:var(--muted); margin-top:4px;">Loading region usage…</div>
         </div>
         <div class="field">
           <label>Branch</label>
@@ -1220,6 +1225,9 @@ function openModal(id) {
   const regionEl = document.getElementById('f_region');
   if (regionEl && !regionEl.value) regionEl.value = 'us-east-1';
   document.getElementById('f_branch').value = 'main';
+
+  // Fetch live region usage so user sees which regions are empty / full
+  refreshRegionUsage();
 
   // Populate Topic Name suggestions from existing records (unique, most-recent first)
   const dl = document.getElementById('topicSuggestions');
@@ -1701,6 +1709,70 @@ document.addEventListener('click', (e) => {
 });
 
 // ---------- AUTO-DETECT ----------
+// --- Region usage: fetch app counts per region, annotate the dropdown ---
+const AMPLIFY_APPS_PER_REGION_QUOTA = 25; // AWS default; adjust if you've requested an increase
+
+async function refreshRegionUsage() {
+  const sel = document.getElementById('f_region');
+  const hint = document.getElementById('regionLoadHint');
+  if (!sel) return;
+
+  // Reset to base labels first
+  for (const opt of sel.options) {
+    opt.textContent = opt.dataset.label || opt.textContent;
+    opt.disabled = false;
+  }
+
+  try {
+    if (hint) { hint.style.color = 'var(--muted)'; hint.textContent = 'Loading region usage…'; }
+    const res = await fetch('deploy.php', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'list' }),
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || ('HTTP ' + res.status));
+
+    const counts = {};
+    for (const a of (data.apps || [])) {
+      counts[a.region] = (counts[a.region] || 0) + 1;
+    }
+
+    let firstEmpty = null;
+    for (const opt of sel.options) {
+      const r = opt.value;
+      const used = counts[r] || 0;
+      const base = opt.dataset.label || opt.textContent;
+      if (used === 0) {
+        opt.textContent = `${base}  ·  ✓ empty`;
+        if (!firstEmpty) firstEmpty = r;
+      } else if (used >= AMPLIFY_APPS_PER_REGION_QUOTA) {
+        opt.textContent = `${base}  ·  ⚠ FULL (${used}/${AMPLIFY_APPS_PER_REGION_QUOTA})`;
+        opt.disabled = true;
+      } else {
+        opt.textContent = `${base}  ·  ${used}/${AMPLIFY_APPS_PER_REGION_QUOTA} used`;
+      }
+    }
+
+    // If current selection is FULL or this is a fresh form, auto-pick first empty
+    const cur = sel.options[sel.selectedIndex];
+    if (cur && cur.disabled && firstEmpty) sel.value = firstEmpty;
+
+    if (hint) {
+      hint.style.color = 'var(--ok, #4ade80)';
+      const emptyRegions = sel.querySelectorAll('option');
+      let emptyCount = 0;
+      emptyRegions.forEach(o => { if ((counts[o.value] || 0) === 0) emptyCount++; });
+      hint.textContent = `✓ ${emptyCount} empty region(s) available · click to pick one with capacity`;
+    }
+  } catch (e) {
+    if (hint) {
+      hint.style.color = 'var(--danger)';
+      hint.textContent = '⚠ Could not load region usage: ' + (e.message || 'unknown') + '. Defaults shown.';
+    }
+  }
+}
+
 // --- Amplify Manager: list + delete across regions, sync with dashboard rows ---
 function openAmplifyManager() {
   document.getElementById('amplifyModal').classList.add('open');
