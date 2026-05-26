@@ -761,7 +761,8 @@
         </div>
         <div class="field">
           <label>Topic Name</label>
-          <input id="f_topic" placeholder="e.g. Nostalgia"/>
+          <input id="f_topic" placeholder="e.g. Nostalgia" list="topicSuggestions" autocomplete="off" oninput="onTopicChange()"/>
+          <datalist id="topicSuggestions"></datalist>
         </div>
       </div>
       <div class="field">
@@ -1150,7 +1151,40 @@ function openModal(id) {
   });
   document.getElementById('detectStatus').textContent = '';
 
+  // Populate Topic Name suggestions from existing records (unique, most-recent first)
+  const dl = document.getElementById('topicSuggestions');
+  if (dl) {
+    const seen = new Set();
+    const opts = [];
+    for (const rec of records) {
+      const t = (rec.topic || '').trim();
+      if (!t) continue;
+      const k = t.toLowerCase();
+      if (seen.has(k)) continue;
+      seen.add(k);
+      opts.push(t);
+    }
+    dl.innerHTML = opts.map(t => `<option value="${escapeAttr(t)}"></option>`).join('');
+  }
+
   document.getElementById('modal').classList.add('open');
+}
+
+// When user picks/types a topic that matches an existing record, auto-fill GitHub
+// (and App Name + Platform if those fields are still empty). Never overwrites
+// values the user has already typed.
+function onTopicChange() {
+  const topic = document.getElementById('f_topic').value.trim().toLowerCase();
+  if (!topic) return;
+  // records is already sorted by updated.desc, so .find returns the most recent match
+  const match = records.find(r => (r.topic || '').trim().toLowerCase() === topic && r.id !== editingId);
+  if (!match) return;
+  const gh = document.getElementById('f_github');
+  const app = document.getElementById('f_appname');
+  const plat = document.getElementById('f_platform');
+  if (gh && !gh.value.trim() && match.github) gh.value = match.github;
+  if (app && !app.value.trim() && match.appname) app.value = match.appname;
+  if (plat && match.platform) plat.value = match.platform;
 }
 function closeModal() {
   document.getElementById('modal').classList.remove('open');
