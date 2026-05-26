@@ -1916,27 +1916,22 @@ async function refreshRegionUsage(force = false) {
       const err = errors[r] || '';
       const notEnabled = /invalid|UnauthorizedOperation|OptInRequired|security token/i.test(err);
 
-      // Un-hide if scan succeeded (means region IS enabled even if it's
-      // normally opt-in — user has activated it)
+      // The deploy dropdown shows ONLY empty regions, because that's all
+      // the user can actually deploy to. Used/full/disabled regions are
+      // hidden — they belong in the Amplify Apps manager.
       opt.disabled = false;
-      if (!notEnabled) opt.style.display = '';
 
-      if (notEnabled) {
-        // Stay hidden — region not enabled on this AWS account
+      if (notEnabled || err) {
         opt.style.display = 'none';
         opt.disabled = true;
         hiddenCount++;
-      } else if (err) {
-        opt.textContent = `${base}  ·  ⚠ ${err.slice(0, 40)}`;
-        opt.disabled = true;
       } else if (used === 0) {
+        opt.style.display = '';
         opt.textContent = `${base}  ·  ✓ empty`;
         if (!firstEmpty) firstEmpty = r;
-      } else if (used >= AMPLIFY_APPS_PER_REGION_QUOTA) {
-        opt.textContent = `${base}  ·  ⚠ FULL (${used}/${AMPLIFY_APPS_PER_REGION_QUOTA})`;
-        opt.disabled = true;
       } else {
-        opt.textContent = `${base}  ·  ${used}/${AMPLIFY_APPS_PER_REGION_QUOTA} used`;
+        // Has apps → hide from deploy dropdown
+        opt.style.display = 'none';
       }
     }
 
@@ -1947,15 +1942,10 @@ async function refreshRegionUsage(force = false) {
     if (hint) {
       hint.style.color = 'var(--ok, #4ade80)';
       let emptyCount = 0;
-      let visibleCount = 0;
       sel.querySelectorAll('option').forEach(o => {
-        if (o.style.display !== 'none') {
-          visibleCount++;
-          if ((counts[o.value] || 0) === 0) emptyCount++;
-        }
+        if (o.style.display !== 'none') emptyCount++;
       });
-      const hiddenNote = hiddenCount ? ` · ${hiddenCount} opt-in region(s) hidden (not enabled in AWS)` : '';
-      hint.textContent = `✓ ${emptyCount} empty region(s) available out of ${visibleCount} enabled${hiddenNote}`;
+      hint.textContent = `✓ ${emptyCount} empty region(s) available to deploy · regions with apps are managed in ☁ Amplify Apps`;
     }
   } catch (e) {
     if (hint) {
@@ -1998,10 +1988,10 @@ function switchAmplifyTab(which) {
     loadAuditLog();
   }
 }
-// Called by ↻ Refresh — refreshes whichever tab is active
+// Called by ↻ Refresh — refreshes whichever tab is active (force-fresh)
 function loadAmplifyTab() {
   if (_amplifyTab === 'activity') loadAuditLog();
-  else loadAmplifyApps();
+  else loadAmplifyApps(true); // force bypass cache
 }
 
 async function loadAuditLog() {
@@ -2046,7 +2036,7 @@ async function loadAuditLog() {
   }
 }
 
-async function loadAmplifyApps() {
+async function loadAmplifyApps(forceFresh = false) {
   const status = document.getElementById('amplifyManagerStatus');
   const body = document.getElementById('amplifyTableBody');
   const count = document.getElementById('amplifyCount');
@@ -2055,17 +2045,29 @@ async function loadAmplifyApps() {
   btn.disabled = true;
   btn.textContent = '⏳ Loading…';
   status.style.color = 'var(--muted)';
-  status.textContent = 'Scanning all 25 Amplify-supported regions globally…';
-  body.innerHTML = '<tr><td colspan="7" style="text-align:center; color:var(--muted); padding:30px;">Loading…</td></tr>';
+
+  // Reuse the dropdown's region-usage cache when fresh — instant load
+  let data;
+  const cacheFresh = !forceFresh && _regionUsageCache && (Date.now() - _regionUsageCache.ts) < REGION_USAGE_TTL_MS;
+  if (cacheFresh) {
+    data = { apps: _regionUsageCache.apps, errors: _regionUsageCache.errors || {} };
+    status.textContent = `Loaded from cache (${Math.floor((Date.now() - _regionUsageCache.ts) / 1000)}s old) — click ↻ Refresh for fresh scan`;
+  } else {
+    status.textContent = 'Scanning all 25 Amplify-supported regions in parallel…';
+    body.innerHTML = '<tr><td colspan="7" style="text-align:center; color:var(--muted); padding:30px;">Loading…</td></tr>';
+  }
 
   try {
-    const res = await fetch('deploy.php', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'list' }),
-    });
-    const data = await res.json();
-    if (!res.ok || data.error) throw new Error(data.error || ('HTTP ' + res.status));
+    if (!cacheFresh) {
+      const res = await fetch('deploy.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'list' }),
+      });
+      data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error || ('HTTP ' + res.status));
+      _regionUsageCache = { ts: Date.now(), apps: data.apps || [], errors: data.errors || {} };
+    }
 
     const apps = data.apps || [];
     apps.sort((a, b) => (b.updateTime || '').localeCompare(a.updateTime || ''));
