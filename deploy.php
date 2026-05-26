@@ -30,11 +30,38 @@ if (!$awsKey || !$awsSecret) {
 }
 
 $input = json_decode(file_get_contents('php://input'), true) ?: [];
+$action        = trim($input['action'] ?? 'deploy');
 $repo          = trim($input['repo'] ?? '');
 $region        = trim($input['region'] ?? 'us-east-1');
 $branch        = trim($input['branch'] ?? 'main') ?: 'main';
 $nameOverride  = trim($input['name'] ?? '');
 $existingAppId = trim($input['appId'] ?? '');
+
+// --- DELETE action: remove an Amplify app entirely ---
+if ($action === 'delete') {
+  if (!$existingAppId) {
+    http_response_code(400);
+    echo json_encode(['error' => 'appId required to delete']);
+    exit;
+  }
+  try {
+    $client = new Aws\Amplify\AmplifyClient([
+      'region'      => $region,
+      'version'     => 'latest',
+      'credentials' => ['key' => $awsKey, 'secret' => $awsSecret],
+    ]);
+    $client->deleteApp(['appId' => $existingAppId]);
+    echo json_encode(['ok' => true, 'deletedAppId' => $existingAppId]);
+    exit;
+  } catch (Aws\Exception\AwsException $e) {
+    http_response_code(500);
+    echo json_encode([
+      'error' => $e->getAwsErrorMessage() ?: $e->getMessage(),
+      'code'  => $e->getAwsErrorCode(),
+    ]);
+    exit;
+  }
+}
 
 // Parse owner/repo from URL like https://github.com/owner/repo(.git)?
 if (!preg_match('#^https?://github\.com/([^/\s]+)/([^/\s]+?)(?:\.git)?/?$#i', $repo, $m)) {

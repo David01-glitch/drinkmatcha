@@ -797,7 +797,10 @@
         </div>
       </div>
       <div class="field">
-        <button class="btn primary" type="button" onclick="deployToAmplify()" id="amplifyBtn">🚀 Deploy to AWS Amplify</button>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <button class="btn primary" type="button" onclick="deployToAmplify()" id="amplifyBtn">🚀 Deploy to AWS Amplify</button>
+          <button class="btn" type="button" onclick="deleteFromAmplify()" id="amplifyDeleteBtn" style="background:var(--danger,#ef4444); color:#fff;">🗑 Delete Amplify app</button>
+        </div>
         <div id="amplifyStatus" style="font-size:12px; color:var(--muted); margin-top:6px;"></div>
       </div>
       <div class="grid-2">
@@ -1659,6 +1662,49 @@ document.addEventListener('click', (e) => {
 });
 
 // ---------- AUTO-DETECT ----------
+async function deleteFromAmplify() {
+  const appId = document.getElementById('f_appname').value.trim();
+  const region = document.getElementById('f_region').value;
+  const btn = document.getElementById('amplifyDeleteBtn');
+  const status = document.getElementById('amplifyStatus');
+
+  if (!appId || !appId.startsWith('d')) {
+    status.style.color = 'var(--danger)';
+    status.textContent = 'No Amplify App ID found in this row (App Name field).';
+    return;
+  }
+  if (!confirm(`Delete Amplify app "${appId}" in ${region}? This cannot be undone. The hosted site will go offline.`)) return;
+
+  btn.disabled = true;
+  btn.textContent = '⏳ Deleting…';
+  status.style.color = 'var(--muted)';
+  status.textContent = 'Calling AWS Amplify DeleteApp…';
+
+  try {
+    const res = await fetch('deploy.php', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'delete', appId, region }),
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || ('HTTP ' + res.status));
+
+    // Clear deployment-related fields so this row can be redeployed fresh
+    document.getElementById('f_appname').value = '';
+    document.getElementById('f_website').value = '';
+    document.getElementById('f_status').value = 'Draft';
+
+    status.style.color = 'var(--ok, #4ade80)';
+    status.textContent = `✓ Deleted ${data.deletedAppId} from ${region}. You can deploy a fresh build now.`;
+  } catch (e) {
+    status.style.color = 'var(--danger)';
+    status.textContent = '✗ ' + (e.message || 'Delete failed');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🗑 Delete Amplify app';
+  }
+}
+
 async function deployToAmplify() {
   const repo = document.getElementById('f_github').value.trim();
   const region = document.getElementById('f_region').value;
