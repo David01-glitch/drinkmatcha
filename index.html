@@ -1885,6 +1885,7 @@ async function refreshRegionUsage(force = false) {
 
     const errors = data.errors || {};
     let firstEmpty = null;
+    let hiddenCount = 0;
     for (const opt of sel.options) {
       const r = opt.value;
       const used = counts[r] || 0;
@@ -1892,9 +1893,15 @@ async function refreshRegionUsage(force = false) {
       const err = errors[r] || '';
       const notEnabled = /invalid|UnauthorizedOperation|OptInRequired|security token/i.test(err);
 
+      // Reset display in case it was hidden before
+      opt.style.display = '';
+      opt.disabled = false;
+
       if (notEnabled) {
-        opt.textContent = `${base}  ·  🚫 region not enabled in AWS account`;
+        // Hide entirely — region not enabled on this AWS account
+        opt.style.display = 'none';
         opt.disabled = true;
+        hiddenCount++;
       } else if (err) {
         opt.textContent = `${base}  ·  ⚠ ${err.slice(0, 40)}`;
         opt.disabled = true;
@@ -1915,10 +1922,16 @@ async function refreshRegionUsage(force = false) {
 
     if (hint) {
       hint.style.color = 'var(--ok, #4ade80)';
-      const emptyRegions = sel.querySelectorAll('option');
       let emptyCount = 0;
-      emptyRegions.forEach(o => { if ((counts[o.value] || 0) === 0) emptyCount++; });
-      hint.textContent = `✓ ${emptyCount} empty region(s) available · click to pick one with capacity`;
+      let visibleCount = 0;
+      sel.querySelectorAll('option').forEach(o => {
+        if (o.style.display !== 'none') {
+          visibleCount++;
+          if ((counts[o.value] || 0) === 0) emptyCount++;
+        }
+      });
+      const hiddenNote = hiddenCount ? ` · ${hiddenCount} opt-in region(s) hidden (not enabled in AWS)` : '';
+      hint.textContent = `✓ ${emptyCount} empty region(s) available out of ${visibleCount} enabled${hiddenNote}`;
     }
   } catch (e) {
     if (hint) {
