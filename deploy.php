@@ -171,6 +171,8 @@ $owner = $m[1];
 $repoName = $m[2];
 $zipUrl = "https://github.com/$owner/$repoName/archive/refs/heads/" . rawurlencode($branch) . ".zip";
 
+$githubToken = getenv('GITHUB_TOKEN'); // optional — when set, use repo-connected mode
+
 try {
   $client = new Aws\Amplify\AmplifyClient([
     'region'      => $region,
@@ -180,41 +182,75 @@ try {
 
   $appId = $existingAppId ?: null;
   $defaultDomain = null;
+  $usingRepoMode = !empty($githubToken);
 
   if (!$appId) {
-    // Create a fresh Amplify app for manual deploys.
-    $createRes = $client->createApp([
-      'name'     => $nameOverride ?: $repoName,
-      'platform' => 'WEB',
-      // No 'repository' / 'accessToken' — keeps us in manual deploy mode,
-      // no GitHub App needed.
-    ]);
+    if ($usingRepoMode) {
+      // Repo-connected mode: Amplify clones the repo, auto-detects the
+      // framework (Vite/React/Next/Astro/static/etc.) and runs the build.
+      // This works for both prebuilt static sites and modern JS apps.
+      $createRes = $client->createApp([
+        'name'        => $nameOverride ?: $repoName,
+        'repository'  => "https://github.com/$owner/$repoName",
+        'accessToken' => $githubToken,
+        'platform'    => 'WEB',
+        'enableBranchAutoBuild' => true,
+        // Let Amplify auto-detect buildSpec; we don't override it here.
+      ]);
+    } else {
+      // Manual mode (no token configured): static-site zip upload only.
+      $createRes = $client->createApp([
+        'name'     => $nameOverride ?: $repoName,
+        'platform' => 'WEB',
+      ]);
+    }
     $appId = $createRes['app']['appId'];
     $defaultDomain = $createRes['app']['defaultDomain'];
 
-    // Create the branch (Amplify needs one before deployments).
     $client->createBranch([
       'appId'      => $appId,
       'branchName' => $branch,
       'stage'      => 'PRODUCTION',
-      'enableAutoBuild' => false,
+      'enableAutoBuild' => $usingRepoMode, // auto-rebuild on git push when connected
     ]);
   } else {
     $g = $client->getApp(['appId' => $appId]);
     $defaultDomain = $g['app']['defaultDomain'];
+    // If existing app is repo-connected, stay in repo mode regardless of token
+    if (!empty($g['app']['repository'])) $usingRepoMode = true;
 
-    // Ensure branch exists.
     try {
       $client->getBranch(['appId' => $appId, 'branchName' => $branch]);
     } catch (Aws\Exception\AwsException $e) {
       if ($e->getAwsErrorCode() === 'NotFoundException') {
         $client->createBranch([
           'appId' => $appId, 'branchName' => $branch,
-          'stage' => 'PRODUCTION', 'enableAutoBuild' => false,
+          'stage' => 'PRODUCTION', 'enableAutoBuild' => $usingRepoMode,
         ]);
       } else { throw $e; }
     }
   }
+
+  // === REPO-CONNECTED MODE: just kick off a RELEASE job and skip zip steps ===
+  if ($usingRepoMode) {
+    $jobRes = $client->startJob([
+      'appId'      => $appId,
+      'branchName' => $branch,
+      'jobType'    => 'RELEASE',
+      'jobReason'  => 'Triggered from dashboard',
+    ]);
+    echo json_encode([
+      'appId'         => $appId,
+      'jobId'         => $jobRes['jobSummary']['jobId'] ?? null,
+      'status'        => $jobRes['jobSummary']['status'] ?? 'PENDING',
+      'url'           => "https://{$branch}.{$defaultDomain}",
+      'defaultDomain' => $defaultDomain,
+      'consoleUrl'    => "https://{$region}.console.aws.amazon.com/amplify/home?region={$region}#/{$appId}",
+      'mode'          => 'repo-connected',
+    ]);
+    exit;
+  }
+  // === Otherwise fall through to manual zip-upload flow below ===
 
   // -------------------------------------------------------------
   // GitHub archive zips wrap files in a top-level folder
