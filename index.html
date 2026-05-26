@@ -1848,7 +1848,9 @@ function regionCountry(code) {
   return label.replace(/^[\u{1F1E6}-\u{1F1FF}]{2}\s*/u, '').trim();
 }
 
-async function refreshRegionUsage() {
+let _regionUsageCache = null;        // { ts, apps }
+const REGION_USAGE_TTL_MS = 60_000;  // refresh if older than 60s
+async function refreshRegionUsage(force = false) {
   const sel = document.getElementById('f_region');
   const hint = document.getElementById('regionLoadHint');
   if (!sel) return;
@@ -1860,14 +1862,20 @@ async function refreshRegionUsage() {
   }
 
   try {
-    if (hint) { hint.style.color = 'var(--muted)'; hint.textContent = 'Loading region usage…'; }
-    const res = await fetch('deploy.php', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'list' }),
-    });
-    const data = await res.json();
-    if (!res.ok || data.error) throw new Error(data.error || ('HTTP ' + res.status));
+    if (hint) { hint.style.color = 'var(--muted)'; hint.textContent = 'Scanning all 25 regions in parallel…'; }
+    let data;
+    if (!force && _regionUsageCache && (Date.now() - _regionUsageCache.ts) < REGION_USAGE_TTL_MS) {
+      data = { apps: _regionUsageCache.apps };
+    } else {
+      const res = await fetch('deploy.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'list' }),
+      });
+      data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error || ('HTTP ' + res.status));
+      _regionUsageCache = { ts: Date.now(), apps: data.apps || [] };
+    }
 
     const counts = {};
     for (const a of (data.apps || [])) {
@@ -2087,6 +2095,8 @@ async function deleteAmplifyAppFromList(appId, region, name) {
     status.style.color = 'var(--ok, #4ade80)';
     status.textContent = `✓ Deleted ${appId} from ${region}${linked.length ? ` · cleared ${linked.length} linked dashboard row(s)` : ''}`;
 
+    _regionUsageCache = null; // bust cache after delete
+
     logAuditEvent('delete', {
       appId, appName: name, region,
       details: { source: 'amplify-manager', linkedRowsCleared: linked.length },
@@ -2265,6 +2275,8 @@ async function deleteFromAmplify() {
     status.style.color = 'var(--ok, #4ade80)';
     status.textContent = `✓ Deleted ${data.deletedAppId} from ${region}. You can deploy a fresh build now.`;
 
+    _regionUsageCache = null; // bust cache after delete
+
     logAuditEvent('delete', {
       appId: data.deletedAppId, appName: document.getElementById('f_topic').value.trim() || data.deletedAppId,
       region,
@@ -2328,6 +2340,9 @@ async function deployToAmplify() {
     // so we don't trample over any notes the user already typed).
     const fb = document.getElementById('f_feedback');
     if (fb && !fb.value.trim()) fb.value = regionCountry(region);
+
+    // New app created → bust region-usage cache so next dropdown open is accurate
+    _regionUsageCache = null;
 
     // Audit log
     logAuditEvent('deploy', {
