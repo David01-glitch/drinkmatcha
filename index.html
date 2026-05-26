@@ -1912,18 +1912,65 @@ async function deleteAmplifyAppFromList(appId, region, name) {
   }
 }
 
-// Poll an Amplify build job until terminal status, then show pass/fail + reason
+// Format milliseconds as "1m 23s" or "47s"
+function fmtElapsed(ms) {
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return s + 's';
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return r ? `${m}m ${r}s` : `${m}m`;
+}
+
+// Verify the deployed URL is actually responding 200 (use server-side check.php
+// because the browser can't cross-origin probe amplifyapp.com directly).
+async function urlIsLive(url) {
+  try {
+    const res = await fetch('check.php?url=' + encodeURIComponent(url));
+    if (!res.ok) return false;
+    const d = await res.json();
+    return d.fetched === true && d.http_code >= 200 && d.http_code < 400;
+  } catch { return false; }
+}
+
+// Poll an Amplify build job until terminal status, then verify the URL is
+// actually live before declaring success.
 async function pollAmplifyJob({ appId, region, branch, jobId, url, consoleUrl }) {
   const status = document.getElementById('amplifyStatus');
   if (!status) return;
   const TERMINAL = new Set(['SUCCEED', 'FAILED', 'CANCELLED']);
-  const INTERVAL_MS = 8000;
-  const MAX_WAIT_MS = 10 * 60 * 1000;
+  const POLL_INTERVAL_MS = 5000;       // AWS job status
+  const VERIFY_INTERVAL_MS = 4000;     // URL liveness probe
+  const MAX_BUILD_MS = 10 * 60 * 1000; // 10 min to finish the build
+  const MAX_VERIFY_MS = 3 * 60 * 1000; // 3 min after build to see HTTP 200
   const startedAt = Date.now();
   let lastStepLine = '';
 
-  while (Date.now() - startedAt < MAX_WAIT_MS) {
-    await new Promise(r => setTimeout(r, INTERVAL_MS));
+  // Continuous timer (keeps the elapsed counter ticking between AWS pings)
+  let timerId = null;
+  let phase = 'building'; // 'building' | 'verifying'
+  function tick() {
+    if (!document.body.contains(status)) { clearInterval(timerId); return; }
+    const el = fmtElapsed(Date.now() - startedAt);
+    if (phase === 'building') {
+      status.innerHTML = `⏳ <strong>${escapeHtml(currentAwsStatus || 'STARTING')}</strong> · running for <strong>${el}</strong> — <a href="${escapeAttr(consoleUrl)}" target="_blank" rel="noopener">AWS console</a><br><span style="font-size:11px;">${escapeHtml(lastStepLine)}</span>`;
+    } else if (phase === 'verifying') {
+      status.innerHTML = `🔄 <strong>Build done in ${escapeHtml(fmtElapsed(buildEndedAt - startedAt))}</strong> · verifying site is live (${el} total)…<br><span style="font-size:11px;">${escapeHtml(lastStepLine)}</span>`;
+    }
+  }
+  let currentAwsStatus = 'PENDING';
+  let buildEndedAt = null;
+  status.style.color = 'var(--muted)';
+  timerId = setInterval(tick, 1000);
+  tick();
+
+  // ---- Phase 1: poll AWS until the build job hits a terminal status ----
+  let finalAwsStatus = null;
+  let finalSteps = [];
+  let failedStep = null;
+  let statusUpdateReason = null;
+
+  while (Date.now() - startedAt < MAX_BUILD_MS) {
+    await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
     try {
       const res = await fetch('deploy.php', {
         method: 'POST',
@@ -1933,43 +1980,65 @@ async function pollAmplifyJob({ appId, region, branch, jobId, url, consoleUrl })
       const d = await res.json();
       if (!res.ok || d.error) throw new Error(d.error || ('HTTP ' + res.status));
 
-      const stepBits = (d.steps || []).map(s => {
+      currentAwsStatus = d.status || currentAwsStatus;
+      finalSteps = d.steps || [];
+      lastStepLine = finalSteps.map(s => {
         const icon = s.status === 'SUCCEED' ? '✓' : s.status === 'FAILED' ? '✗' : s.status === 'RUNNING' ? '⏳' : '·';
         return `${icon} ${s.name}`;
-      });
-      lastStepLine = stepBits.join(' → ') || d.status || '';
+      }).join(' → ');
+      statusUpdateReason = d.statusUpdateReason || statusUpdateReason;
 
       if (TERMINAL.has(d.status)) {
-        if (d.status === 'SUCCEED') {
-          status.style.color = 'var(--ok, #4ade80)';
-          status.innerHTML = `✅ <strong>Deploy SUCCEEDED</strong> — <a href="${escapeAttr(url)}" target="_blank" rel="noopener">${escapeHtml(url)}</a> · <a href="${escapeAttr(consoleUrl)}" target="_blank" rel="noopener">AWS console</a><br><span style="font-size:11px; color:var(--muted);">${escapeHtml(lastStepLine)}</span>`;
-        } else {
-          // Find the failed step's reason
-          const failedStep = (d.steps || []).find(s => s.status === 'FAILED');
-          const reason = (failedStep && failedStep.statusReason) || d.statusUpdateReason || '(no reason returned by AWS)';
-          const logUrl = failedStep && failedStep.logUrl ? failedStep.logUrl : null;
-          status.style.color = 'var(--danger)';
-          status.innerHTML = `❌ <strong>Deploy ${escapeHtml(d.status)}</strong> at step <strong>${escapeHtml((failedStep && failedStep.name) || '?')}</strong><br>
-            <span style="font-size:12px;">Reason: ${escapeHtml(reason)}</span><br>
-            <span style="font-size:11px; color:var(--muted);">${escapeHtml(lastStepLine)}</span><br>
-            ${logUrl ? `<a href="${escapeAttr(logUrl)}" target="_blank" rel="noopener" style="font-size:12px;">📄 Open build log</a> · ` : ''}<a href="${escapeAttr(consoleUrl)}" target="_blank" rel="noopener" style="font-size:12px;">AWS console</a>`;
+        finalAwsStatus = d.status;
+        buildEndedAt = Date.now();
+        if (d.status !== 'SUCCEED') {
+          failedStep = finalSteps.find(s => s.status === 'FAILED') || null;
         }
-        return;
+        break;
       }
-
-      // Still in progress — keep user informed
-      const elapsed = Math.floor((Date.now() - startedAt) / 1000);
-      status.style.color = 'var(--muted)';
-      status.innerHTML = `⏳ <strong>${escapeHtml(d.status || 'RUNNING')}</strong> (${elapsed}s elapsed) — <a href="${escapeAttr(consoleUrl)}" target="_blank" rel="noopener">live in AWS console</a><br><span style="font-size:11px;">${escapeHtml(lastStepLine)}</span>`;
-    } catch (e) {
-      // Network blip — keep trying
-      status.style.color = 'var(--muted)';
-      status.textContent = '⏳ Polling… (last error: ' + (e.message || 'network') + ')';
-    }
+    } catch (e) { /* keep polling on transient errors */ }
   }
-  // Hit timeout
+
+  // ---- Build FAILED / CANCELLED ----
+  if (finalAwsStatus && finalAwsStatus !== 'SUCCEED') {
+    clearInterval(timerId);
+    const reason = (failedStep && failedStep.statusReason) || statusUpdateReason || '(no reason returned by AWS)';
+    const logUrl = failedStep && failedStep.logUrl ? failedStep.logUrl : null;
+    const total = fmtElapsed(buildEndedAt - startedAt);
+    status.style.color = 'var(--danger)';
+    status.innerHTML = `❌ <strong>Deploy ${escapeHtml(finalAwsStatus)}</strong> after ${escapeHtml(total)} — failed at step <strong>${escapeHtml((failedStep && failedStep.name) || '?')}</strong><br>
+      <span style="font-size:12px;">Reason: ${escapeHtml(reason)}</span><br>
+      <span style="font-size:11px; color:var(--muted);">${escapeHtml(lastStepLine)}</span><br>
+      ${logUrl ? `<a href="${escapeAttr(logUrl)}" target="_blank" rel="noopener" style="font-size:12px;">📄 Open build log</a> · ` : ''}<a href="${escapeAttr(consoleUrl)}" target="_blank" rel="noopener" style="font-size:12px;">AWS console</a>`;
+    return;
+  }
+
+  // ---- Build timed out before any terminal status ----
+  if (!finalAwsStatus) {
+    clearInterval(timerId);
+    status.style.color = 'var(--muted)';
+    status.innerHTML = `⌛ Still building after 10 minutes. <a href="${escapeAttr(consoleUrl)}" target="_blank" rel="noopener">Check AWS console</a>.`;
+    return;
+  }
+
+  // ---- Phase 2: AWS says SUCCEED. Verify the URL actually serves 200 ----
+  phase = 'verifying';
+  tick();
+  const verifyStartedAt = Date.now();
+  while (Date.now() - verifyStartedAt < MAX_VERIFY_MS) {
+    if (await urlIsLive(url)) {
+      clearInterval(timerId);
+      const totalMs = Date.now() - startedAt;
+      status.style.color = 'var(--ok, #4ade80)';
+      status.innerHTML = `✅ <strong>Deployed in ${escapeHtml(fmtElapsed(totalMs))}</strong> — <a href="${escapeAttr(url)}" target="_blank" rel="noopener">${escapeHtml(url)}</a> · <a href="${escapeAttr(consoleUrl)}" target="_blank" rel="noopener">AWS console</a><br><span style="font-size:11px; color:var(--muted);">${escapeHtml(lastStepLine)}</span>`;
+      return;
+    }
+    await new Promise(r => setTimeout(r, VERIFY_INTERVAL_MS));
+  }
+  // Verification timed out
+  clearInterval(timerId);
   status.style.color = 'var(--muted)';
-  status.innerHTML = `⌛ Still building after 10 minutes. <a href="${escapeAttr(consoleUrl)}" target="_blank" rel="noopener">Check AWS console</a> directly.`;
+  status.innerHTML = `⚠ AWS reported SUCCEED but the URL didn't respond 200 within 3 min. It may still come up. <a href="${escapeAttr(url)}" target="_blank" rel="noopener">Try opening it</a> · <a href="${escapeAttr(consoleUrl)}" target="_blank" rel="noopener">AWS console</a>`;
 }
 
 async function deleteFromAmplify() {
