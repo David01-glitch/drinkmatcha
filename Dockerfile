@@ -1,7 +1,7 @@
 FROM php:8.2-cli-alpine
 
-RUN apk add --no-cache curl curl-dev git unzip \
-    && docker-php-ext-install -j$(nproc) curl opcache
+RUN apk add --no-cache curl curl-dev git unzip libzip-dev \
+    && docker-php-ext-install -j$(nproc) curl opcache zip
 
 # Install Composer
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer

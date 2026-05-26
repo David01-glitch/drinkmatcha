@@ -216,12 +216,110 @@ try {
     }
   }
 
-  // Trigger the deployment using the public GitHub archive URL.
-  $jobRes = $client->startDeployment([
-    'appId'      => $appId,
-    'branchName' => $branch,
-    'sourceUrl'  => $zipUrl,
-  ]);
+  // -------------------------------------------------------------
+  // GitHub archive zips wrap files in a top-level folder
+  // (e.g. "repo-main/"), which breaks Amplify's root path. So we
+  // repack the zip server-side, stripping that wrapper, then PUT
+  // it to Amplify's presigned upload URL.
+  // -------------------------------------------------------------
+  $tmpDir = sys_get_temp_dir();
+  $rawZip = tempnam($tmpDir, 'gh_') . '.zip';
+  $repackedZip = tempnam($tmpDir, 'rp_') . '.zip';
+
+  try {
+    // 1. Download the GitHub zip
+    $ghCh = curl_init($zipUrl);
+    $fp = fopen($rawZip, 'wb');
+    curl_setopt_array($ghCh, [
+      CURLOPT_FILE => $fp,
+      CURLOPT_FOLLOWLOCATION => true,
+      CURLOPT_TIMEOUT => 60,
+      CURLOPT_USERAGENT => 'matcha-deploy/1.0',
+    ]);
+    if (!curl_exec($ghCh)) {
+      throw new Exception('GitHub zip download failed: ' . curl_error($ghCh));
+    }
+    $ghCode = curl_getinfo($ghCh, CURLINFO_HTTP_CODE);
+    curl_close($ghCh);
+    fclose($fp);
+    if ($ghCode !== 200) {
+      throw new Exception("GitHub zip returned HTTP $ghCode (does the branch '$branch' exist on $owner/$repoName?)");
+    }
+
+    // 2. Open, detect wrapper folder, rewrite into a flat zip
+    $inZip = new ZipArchive();
+    if ($inZip->open($rawZip) !== true) {
+      throw new Exception('Could not open downloaded zip');
+    }
+    // Detect common prefix (the wrapper folder, e.g. "repo-main/")
+    $prefix = '';
+    if ($inZip->numFiles > 0) {
+      $first = $inZip->getNameIndex(0);
+      $slash = strpos($first, '/');
+      if ($slash !== false) {
+        $candidate = substr($first, 0, $slash + 1);
+        $allShare = true;
+        for ($i = 1; $i < $inZip->numFiles; $i++) {
+          if (strpos($inZip->getNameIndex($i), $candidate) !== 0) {
+            $allShare = false; break;
+          }
+        }
+        if ($allShare) $prefix = $candidate;
+      }
+    }
+
+    $outZip = new ZipArchive();
+    if ($outZip->open($repackedZip, ZipArchive::CREATE | ZipArchive::OVERWRITE) !== true) {
+      $inZip->close();
+      throw new Exception('Could not create repacked zip');
+    }
+    for ($i = 0; $i < $inZip->numFiles; $i++) {
+      $name = $inZip->getNameIndex($i);
+      $newName = $prefix && strpos($name, $prefix) === 0 ? substr($name, strlen($prefix)) : $name;
+      if ($newName === '' || substr($newName, -1) === '/') continue; // skip dir entries
+      $outZip->addFromString($newName, $inZip->getFromIndex($i));
+    }
+    $inZip->close();
+    $outZip->close();
+
+    // 3. Ask Amplify for a presigned upload URL
+    $dep = $client->createDeployment([
+      'appId'      => $appId,
+      'branchName' => $branch,
+    ]);
+    $uploadUrl = $dep['zipUploadUrl'];
+    $jobId     = $dep['jobId'];
+
+    // 4. Upload the repacked zip via HTTP PUT
+    $upCh = curl_init($uploadUrl);
+    $fp = fopen($repackedZip, 'rb');
+    curl_setopt_array($upCh, [
+      CURLOPT_PUT => true,
+      CURLOPT_INFILE => $fp,
+      CURLOPT_INFILESIZE => filesize($repackedZip),
+      CURLOPT_RETURNTRANSFER => true,
+      CURLOPT_TIMEOUT => 120,
+      CURLOPT_HTTPHEADER => ['Content-Type: application/zip'],
+    ]);
+    $upResp = curl_exec($upCh);
+    $upCode = curl_getinfo($upCh, CURLINFO_HTTP_CODE);
+    $upErr = curl_error($upCh);
+    curl_close($upCh);
+    fclose($fp);
+    if ($upCode >= 300) {
+      throw new Exception("Upload to Amplify S3 failed: HTTP $upCode $upErr — body: " . substr($upResp, 0, 200));
+    }
+
+    // 5. Tell Amplify to deploy the uploaded zip
+    $jobRes = $client->startDeployment([
+      'appId'      => $appId,
+      'branchName' => $branch,
+      'jobId'      => $jobId,
+    ]);
+  } finally {
+    @unlink($rawZip);
+    @unlink($repackedZip);
+  }
 
   echo json_encode([
     'appId'         => $appId,
