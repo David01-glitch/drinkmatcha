@@ -257,6 +257,12 @@
     border-color: rgba(123,211,137,0.35);
     animation: glowGreen 2.4s ease-in-out infinite;
   }
+  .recent-badge.danger {
+    background: rgba(239, 68, 68, 0.12);
+    color: #f87171;
+    border-color: rgba(239, 68, 68, 0.35);
+    animation: none;
+  }
   @keyframes glow {
     0%, 100% { box-shadow: 0 0 0 0 rgba(106,168,255,0); }
     50% { box-shadow: 0 0 0 4px rgba(106,168,255,0.18); }
@@ -1500,6 +1506,46 @@ function isNewEntry(r) {
   return hasCreated && !hasEdits;
 }
 
+// Build a context-aware "recently changed" badge from the most recent edits.
+// Examples:
+//   🚀 Deployed       — appname went from empty → Amplify ID (starts with 'd')
+//   🗑 Amplify removed — appname went from Amplify ID → empty
+//   🔗 Link updated   — website/github changed
+//   ✓ Live            — status set to Live
+//   ✎ Status / Notes / etc. — show actual field name
+function describeLastChange(r) {
+  const ch = changeNotes(r).filter(n => n.field && n.field !== '__created');
+  if (!ch.length) return '<span class="recent-badge">✎ Edited</span>';
+  // Look at the most-recent batch of edits (within last 10 seconds of each other)
+  const last = ch[ch.length - 1];
+  const lastTs = last.ts || 0;
+  const recentBatch = ch.filter(n => (lastTs - (n.ts || 0)) < 10_000);
+
+  // Detect Amplify deploy / remove
+  for (const e of recentBatch) {
+    if (e.field === 'appname') {
+      const oldV = (e.oldValue || '').trim();
+      const newV = (e.newValue || '').trim();
+      const looksAmplify = v => /^d[a-z0-9]{10,}$/i.test(v);
+      if (!oldV && looksAmplify(newV)) return '<span class="recent-badge new">🚀 Deployed</span>';
+      if (looksAmplify(oldV) && !newV) return '<span class="recent-badge danger">🗑 Amplify removed</span>';
+    }
+  }
+  // Link change
+  if (recentBatch.some(e => e.field === 'website' || e.field === 'github')) {
+    return '<span class="recent-badge">🔗 Link updated</span>';
+  }
+  // Status going to Live
+  const statusChange = recentBatch.find(e => e.field === 'status');
+  if (statusChange && (statusChange.newValue || '').toLowerCase() === 'live') {
+    return '<span class="recent-badge new">✓ Live</span>';
+  }
+  // Generic field-name based label
+  const fields = [...new Set(recentBatch.map(e => FIELD_LABELS[e.field] || e.field))].slice(0, 2);
+  const labelText = fields.join(', ') || 'Edited';
+  return `<span class="recent-badge" title="Updated: ${escapeAttr(labelText)}">✎ ${escapeHtml(labelText)}</span>`;
+}
+
 function render() {
   const search = document.getElementById('searchInput').value.toLowerCase();
   const fp = document.getElementById('filterPlatform').value;
@@ -1565,7 +1611,7 @@ function render() {
     const editor = lastEditor(r);
     const editorLine = (editor || updatedMs(r)) ? `<span class="last-edit">${editor ? `<b>${escapeHtml(editor)}</b> · ` : ''}${escapeHtml(timeAgo(updatedMs(r)))}</span>` : '';
     const recentBadge = recent
-      ? (isNew ? '<span class="recent-badge new">✨ New</span>' : '<span class="recent-badge">✎ Edited</span>')
+      ? (isNew ? '<span class="recent-badge new">✨ New</span>' : describeLastChange(r))
       : '';
     const archTag = r.archived ? '<span class="arch-tag">Archived</span>' : '';
     const rowClass = r.archived ? 'archived' : (isNew ? 'new-entry' : (recent ? 'recent' : ''));
