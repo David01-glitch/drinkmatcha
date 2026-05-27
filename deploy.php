@@ -125,26 +125,34 @@ if ($action === 'status') {
 
 // --- LIST action: list Amplify apps across regions ---
 if ($action === 'list') {
-  // All AWS regions where Amplify Hosting is available (as of 2024).
-  // Non-supported regions return an error and just appear in the
-  // 'errors' object — harmless.
+  // Default-enabled AWS regions where Amplify Hosting is available.
+  // Opt-in regions are deliberately excluded — they return slow STS
+  // errors and just slow the scan down without ever finding any apps.
+  // Frontend has the opt-in list and hides those options separately.
   $regionsToCheck = $input['regions'] ?? [
     'us-east-1','us-east-2','us-west-1','us-west-2',
     'ca-central-1',
     'sa-east-1',
-    'eu-west-1','eu-west-2','eu-west-3','eu-central-1','eu-north-1','eu-south-1',
-    'me-south-1','me-central-1',
-    'af-south-1',
-    'ap-east-1',
-    'ap-south-1','ap-south-2',
-    'ap-southeast-1','ap-southeast-2','ap-southeast-3','ap-southeast-4',
+    'eu-west-1','eu-west-2','eu-west-3','eu-central-1','eu-north-1',
+    'ap-south-1',
+    'ap-southeast-1','ap-southeast-2',
     'ap-northeast-1','ap-northeast-2','ap-northeast-3',
   ];
+  // Tiny server-side disk cache — 30s TTL. Lets multiple users share the
+  // same scan result without each one hammering AWS. Falls back to fresh
+  // scan if cache file is missing or stale, or if 'force' is passed.
+  $force = !empty($input['force']);
+  $cachePath = sys_get_temp_dir() . '/amplify_list_cache.json';
+  if (!$force && is_file($cachePath) && (time() - filemtime($cachePath)) < 30) {
+    readfile($cachePath);
+    exit;
+  }
+
   $allApps = [];
   $errors = [];
 
-  // Fire all regions in parallel via async promises (Guzzle under the hood).
-  // Cuts 25-region scan from ~20s sequential to ~2s.
+  // Fire all regions concurrently via async promises with a hard per-region
+  // timeout. Wait() with a 20s overall cap so the request never hangs.
   $promises = [];
   $clients = [];
   foreach ($regionsToCheck as $r) {
@@ -153,13 +161,20 @@ if ($action === 'list') {
         'region'      => $r,
         'version'     => 'latest',
         'credentials' => ['key' => $awsKey, 'secret' => $awsSecret],
+        'http'        => ['timeout' => 8, 'connect_timeout' => 4],
+        'retries'     => 1,
       ]);
       $promises[$r] = $clients[$r]->listAppsAsync(['maxResults' => 100]);
     } catch (Throwable $e) {
       $errors[$r] = $e->getMessage();
     }
   }
-  $results = GuzzleHttp\Promise\Utils::settle($promises)->wait();
+  try {
+    $results = GuzzleHttp\Promise\Utils::settle($promises)->wait();
+  } catch (Throwable $e) {
+    $results = [];
+    $errors['_global'] = 'settle wait failed: ' . $e->getMessage();
+  }
   foreach ($results as $r => $result) {
     if ($result['state'] === 'fulfilled') {
       $res = $result['value'];
@@ -175,26 +190,6 @@ if ($action === 'list') {
           'updateTime'    => isset($a['updateTime']) ? $a['updateTime']->format(DATE_ATOM) : null,
         ];
       }
-      // Handle pagination for regions with >100 apps (rare but possible).
-      $next = $res['nextToken'] ?? null;
-      while ($next) {
-        try {
-          $res = $clients[$r]->listApps(['maxResults' => 100, 'nextToken' => $next]);
-          foreach (($res['apps'] ?? []) as $a) {
-            $allApps[] = [
-              'appId'         => $a['appId'] ?? null,
-              'name'          => $a['name'] ?? null,
-              'region'        => $r,
-              'defaultDomain' => $a['defaultDomain'] ?? null,
-              'repository'    => $a['repository'] ?? null,
-              'platform'      => $a['platform'] ?? null,
-              'createTime'    => isset($a['createTime']) ? $a['createTime']->format(DATE_ATOM) : null,
-              'updateTime'    => isset($a['updateTime']) ? $a['updateTime']->format(DATE_ATOM) : null,
-            ];
-          }
-          $next = $res['nextToken'] ?? null;
-        } catch (Throwable $e) { $next = null; }
-      }
     } else {
       $reason = $result['reason'];
       $errors[$r] = method_exists($reason, 'getAwsErrorMessage')
@@ -202,7 +197,9 @@ if ($action === 'list') {
         : $reason->getMessage();
     }
   }
-  echo json_encode(['apps' => $allApps, 'errors' => $errors]);
+  $payload = json_encode(['apps' => $allApps, 'errors' => $errors]);
+  @file_put_contents($cachePath, $payload);
+  echo $payload;
   exit;
 }
 
@@ -220,6 +217,7 @@ if ($action === 'delete') {
       'credentials' => ['key' => $awsKey, 'secret' => $awsSecret],
     ]);
     $client->deleteApp(['appId' => $existingAppId]);
+    @unlink(sys_get_temp_dir() . '/amplify_list_cache.json'); // bust server cache
     echo json_encode(['ok' => true, 'deletedAppId' => $existingAppId]);
     exit;
   } catch (Aws\Exception\AwsException $e) {
@@ -436,6 +434,7 @@ try {
     @unlink($repackedZip);
   }
 
+  @unlink(sys_get_temp_dir() . '/amplify_list_cache.json'); // bust server cache after new app
   echo json_encode([
     'appId'         => $appId,
     'jobId'         => $jobRes['jobSummary']['jobId'] ?? null,
