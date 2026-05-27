@@ -1507,42 +1507,86 @@ function isNewEntry(r) {
 }
 
 // Build a context-aware "recently changed" badge from the most recent edits.
-// Examples:
-//   🚀 Deployed       — appname went from empty → Amplify ID (starts with 'd')
-//   🗑 Amplify removed — appname went from Amplify ID → empty
-//   🔗 Link updated   — website/github changed
-//   ✓ Live            — status set to Live
-//   ✎ Status / Notes / etc. — show actual field name
+// Different shapes per field, added vs. updated vs. removed.
 function describeLastChange(r) {
   const ch = changeNotes(r).filter(n => n.field && n.field !== '__created');
   if (!ch.length) return '<span class="recent-badge">✎ Edited</span>';
-  // Look at the most-recent batch of edits (within last 10 seconds of each other)
+  // Group changes within the same edit batch (within 10s of the most recent change)
   const last = ch[ch.length - 1];
   const lastTs = last.ts || 0;
   const recentBatch = ch.filter(n => (lastTs - (n.ts || 0)) < 10_000);
 
-  // Detect Amplify deploy / remove
+  const wasEmpty = v => !(v || '').trim();
+  const isFilled = v => !!(v || '').trim();
+  const looksAmplify = v => /^d[a-z0-9]{10,}$/i.test((v || '').trim());
+
+  // --- Highest-priority actions: Amplify deploy / remove ---
   for (const e of recentBatch) {
     if (e.field === 'appname') {
-      const oldV = (e.oldValue || '').trim();
-      const newV = (e.newValue || '').trim();
-      const looksAmplify = v => /^d[a-z0-9]{10,}$/i.test(v);
-      if (!oldV && looksAmplify(newV)) return '<span class="recent-badge new">🚀 Deployed</span>';
-      if (looksAmplify(oldV) && !newV) return '<span class="recent-badge danger">🗑 Amplify removed</span>';
+      if (wasEmpty(e.oldValue) && looksAmplify(e.newValue)) return '<span class="recent-badge new">🚀 Deployed</span>';
+      if (looksAmplify(e.oldValue) && wasEmpty(e.newValue)) return '<span class="recent-badge danger">🗑 Amplify removed</span>';
     }
   }
-  // Link change
-  if (recentBatch.some(e => e.field === 'website' || e.field === 'github')) {
-    return '<span class="recent-badge">🔗 Link updated</span>';
+
+  // --- Single-field changes with their own specific tags ---
+  // Build a map of field -> changeEntry for this batch
+  const byField = {};
+  for (const e of recentBatch) byField[e.field] = e;
+  const changedFields = Object.keys(byField);
+
+  // Helper: pick "added" vs "updated" vs "removed" for a given field
+  const verbFor = (e) => {
+    if (wasEmpty(e.oldValue) && isFilled(e.newValue)) return 'added';
+    if (isFilled(e.oldValue) && wasEmpty(e.newValue)) return 'removed';
+    return 'updated';
+  };
+
+  // If only ONE field changed in this batch, render a specific badge for it
+  if (changedFields.length === 1) {
+    const f = changedFields[0];
+    const e = byField[f];
+    const verb = verbFor(e);
+    const verbCls = verb === 'removed' ? 'danger' : (verb === 'added' ? 'new' : '');
+    const icons = {
+      github:   '🐙',
+      website:  '🌐',
+      topic:    '🏷',
+      appname:  '☁',
+      platform: '⚙',
+      status:   '✓',
+      cookie:   '🍪',
+      feedback: '📝',
+      date:     '📅',
+    };
+    const labels = {
+      github:   'GitHub',
+      website:  'Website',
+      topic:    'Topic',
+      appname:  'App name',
+      platform: 'Platform',
+      status:   'Status',
+      cookie:   'Cookie',
+      feedback: 'Notes',
+      date:     'Date',
+    };
+    // Special-case: status going to "Live" is a milestone, show as success
+    if (f === 'status' && (e.newValue || '').toLowerCase() === 'live') {
+      return '<span class="recent-badge new">✓ Live</span>';
+    }
+    const ic = icons[f] || '✎';
+    const lbl = labels[f] || (FIELD_LABELS[f] || f);
+    return `<span class="recent-badge ${verbCls}">${ic} ${escapeHtml(lbl)} ${escapeHtml(verb)}</span>`;
   }
-  // Status going to Live
-  const statusChange = recentBatch.find(e => e.field === 'status');
-  if (statusChange && (statusChange.newValue || '').toLowerCase() === 'live') {
-    return '<span class="recent-badge new">✓ Live</span>';
+
+  // --- Multiple fields in one batch — roll up ---
+  // Link-only batch (website + github together)
+  const linkFields = changedFields.filter(f => f === 'website' || f === 'github');
+  if (linkFields.length === changedFields.length && linkFields.length > 0) {
+    return '<span class="recent-badge">🔗 Links updated</span>';
   }
-  // Generic field-name based label
-  const fields = [...new Set(recentBatch.map(e => FIELD_LABELS[e.field] || e.field))].slice(0, 2);
-  const labelText = fields.join(', ') || 'Edited';
+  // Generic multi-field: show first 2 field labels
+  const labels = [...new Set(changedFields.map(f => FIELD_LABELS[f] || f))].slice(0, 2);
+  const labelText = labels.join(', ') || 'Edited';
   return `<span class="recent-badge" title="Updated: ${escapeAttr(labelText)}">✎ ${escapeHtml(labelText)}</span>`;
 }
 
