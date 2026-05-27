@@ -1967,61 +1967,67 @@ async function refreshRegionUsage(force = false) {
 
     const errors = data.errors || {};
     let firstEmpty = null;
-    let hiddenCount = 0;
+    let emptyCount = 0;
+
+    // Deploy dropdown shows ONLY empty regions. Used / full / errored ones
+    // are hidden — they belong in ☁ Amplify Apps where you can delete
+    // existing apps to free up a region.
     for (const opt of sel.options) {
+      if (opt.dataset.placeholder === '1') continue; // skip the empty-state placeholder
       const r = opt.value;
       const used = counts[r] || 0;
       const base = opt.dataset.label || opt.textContent;
       const err = errors[r] || '';
-      const notEnabled = /invalid|UnauthorizedOperation|OptInRequired|security token/i.test(err);
+      const notEnabled = OPT_IN_REGIONS.has(r) || /invalid|UnauthorizedOperation|OptInRequired|security token/i.test(err);
 
-      // Hide regions that errored / aren't enabled. Show empty regions
-      // first (annotated ✓), then used regions sorted by usage (each
-      // region holds up to 25 apps, so deploying into a used region
-      // is fine until that quota).
       opt.disabled = false;
-      opt.dataset.sortKey = String(used).padStart(3, '0'); // for later sort
-
-      if (notEnabled || err) {
+      if (notEnabled || err || used > 0) {
         opt.style.display = 'none';
-        opt.disabled = true;
-        hiddenCount++;
-      } else if (used === 0) {
+      } else {
         opt.style.display = '';
         opt.textContent = `${base}  ·  ✓ empty`;
         if (!firstEmpty) firstEmpty = r;
-      } else if (used >= AMPLIFY_APPS_PER_REGION_QUOTA) {
-        opt.style.display = '';
-        opt.textContent = `${base}  ·  ⚠ FULL (${used}/${AMPLIFY_APPS_PER_REGION_QUOTA})`;
-        opt.disabled = true;
-      } else {
-        opt.style.display = '';
-        opt.textContent = `${base}  ·  ${used}/${AMPLIFY_APPS_PER_REGION_QUOTA} used`;
+        emptyCount++;
       }
     }
-    // Re-sort options so ✓ empty regions float to the top, then by usage asc
-    const sortableOpts = Array.from(sel.options).filter(o => o.style.display !== 'none');
-    sortableOpts.sort((a, b) => (a.dataset.sortKey || '999').localeCompare(b.dataset.sortKey || '999'));
-    const prevValue = sel.value;
-    sortableOpts.forEach(o => sel.appendChild(o));
-    sel.value = prevValue;
 
-    // If current selection is FULL or this is a fresh form, auto-pick first empty
-    const cur = sel.options[sel.selectedIndex];
-    if (cur && cur.disabled && firstEmpty) sel.value = firstEmpty;
-
-    if (hint) {
-      hint.style.color = 'var(--ok, #4ade80)';
-      let emptyCount = 0;
-      let usedCount = 0;
-      sel.querySelectorAll('option').forEach(o => {
-        if (o.style.display === 'none') return;
-        const used = parseInt(o.dataset.sortKey || '0', 10);
-        if (used === 0) emptyCount++; else if (used < AMPLIFY_APPS_PER_REGION_QUOTA) usedCount++;
-      });
-      hint.textContent = emptyCount > 0
-        ? `✓ ${emptyCount} empty region(s) at the top · ${usedCount} more with capacity below`
-        : `No empty regions left. ${usedCount} region(s) below still have capacity (each holds up to ${AMPLIFY_APPS_PER_REGION_QUOTA} apps).`;
+    // Handle "no empty regions" state with a clear placeholder + disabled button
+    const deployBtn = document.getElementById('amplifyBtn');
+    let placeholder = sel.querySelector('option[data-placeholder="1"]');
+    if (emptyCount === 0) {
+      if (!placeholder) {
+        placeholder = document.createElement('option');
+        placeholder.dataset.placeholder = '1';
+        sel.insertBefore(placeholder, sel.firstChild);
+      }
+      placeholder.value = '';
+      placeholder.textContent = '🚫 No empty regions — delete an app first';
+      placeholder.style.display = '';
+      placeholder.disabled = false;
+      sel.value = '';
+      if (deployBtn) {
+        deployBtn.disabled = true;
+        deployBtn.title = 'No empty regions available. Free one by deleting an app from ☁ Amplify Apps.';
+        deployBtn.style.opacity = '0.5';
+      }
+      if (hint) {
+        hint.style.color = 'var(--danger)';
+        hint.innerHTML = `⚠ <strong>No empty regions available.</strong> Free one by deleting an app from <a href="#" onclick="event.preventDefault(); openAmplifyManager();" style="color:var(--accent);">☁ Amplify Apps</a>.`;
+      }
+    } else {
+      if (placeholder) placeholder.remove();
+      if (firstEmpty && (!sel.value || sel.options[sel.selectedIndex]?.style.display === 'none')) {
+        sel.value = firstEmpty;
+      }
+      if (deployBtn) {
+        deployBtn.disabled = false;
+        deployBtn.title = '';
+        deployBtn.style.opacity = '';
+      }
+      if (hint) {
+        hint.style.color = 'var(--ok, #4ade80)';
+        hint.innerHTML = `✓ <strong>${emptyCount}</strong> empty region(s) available to deploy · regions with apps are managed in <a href="#" onclick="event.preventDefault(); openAmplifyManager();" style="color:var(--accent);">☁ Amplify Apps</a>`;
+      }
     }
   } catch (e) {
     if (hint) {
