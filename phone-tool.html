@@ -221,6 +221,10 @@
           <input type="text" id="ghMsg" placeholder="Update phone numbers" value="Update phone numbers" autocomplete="off">
         </div>
       </div>
+      <div class="field">
+        <label>ZIP to push <span style="text-transform:none;">— leave empty to push the uploaded zip above (with your replacements). Or pick a different/updated zip here.</span></label>
+        <input type="file" id="ghZip" accept=".zip">
+      </div>
       <div class="field" style="font-size:12px; color:var(--muted);">
         🔑 Uses the dashboard's GitHub token automatically — no token needed.
       </div>
@@ -509,6 +513,8 @@
     ghStatusEl.className = "gh-status" + (cls ? " " + cls : "");
   }
 
+  const ghZipEl = document.getElementById("ghZip");
+
   pushBtn.addEventListener("click", async () => {
     const repoUrl = (ghRepoEl.value || "").trim();
     const branch = (ghBranchEl.value || "main").trim();
@@ -517,36 +523,45 @@
     if (!/github\.com[/:][^/]+\/[^/]+/i.test(repoUrl)) {
       setGhStatus("Enter a valid GitHub repo URL (https://github.com/owner/repo).", "err"); return;
     }
-    const active = activeReplacements();
-    if (active.length === 0) { setGhStatus("No replacements entered — nothing to push.", "err"); return; }
+
+    // Decide what zip to push:
+    //  - a zip chosen in this Push section, OR
+    //  - the zip loaded at the top, with phone replacements applied
+    const chosen = ghZipEl.files && ghZipEl.files[0];
+    if (!chosen && !zipObj) {
+      setGhStatus("Upload a zip (here or at the top) to push.", "err"); return;
+    }
 
     pushBtn.disabled = true;
     try {
-      applyReplacements(active);
-
-      // Collect every file from the zip as base64 (preserve structure)
-      setGhStatus("Packaging files…");
-      const entries = [];
-      zipObj.forEach((path, entry) => { if (!entry.dir) entries.push({ path, entry }); });
-      const files = [];
-      for (let i = 0; i < entries.length; i++) {
-        const b64 = await entries[i].entry.async("base64");
-        files.push({ path: entries[i].path, contentBase64: b64 });
-        setGhStatus("Packaging file " + (i + 1) + " / " + entries.length + "…");
+      let zipBlob, label;
+      if (chosen) {
+        zipBlob = chosen;
+        label = chosen.name;
+      } else {
+        const active = activeReplacements();
+        applyReplacements(active); // apply any number changes into the loaded zip
+        setGhStatus("Building zip from your edits…");
+        zipBlob = await zipObj.generateAsync({ type: "blob", compression: "DEFLATE" });
+        label = "loaded zip" + (active.length ? " (" + active.length + " number(s) replaced)" : "");
       }
 
-      // Send to the server — it pushes using the dashboard's GITHUB_TOKEN
-      setGhStatus("Pushing " + files.length + " file(s) via server…");
-      const res = await fetch("/github-push.php", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repo: repoUrl, branch, message: commitMsg, files })
-      });
-      const data = await res.json();
+      setGhStatus("Uploading " + label + " and pushing via server…");
+      const fd = new FormData();
+      fd.append("repo", repoUrl);
+      fd.append("branch", branch);
+      fd.append("message", commitMsg);
+      fd.append("zip", zipBlob, "push.zip");
+
+      const res = await fetch("/github-push.php", { method: "POST", body: fd });
+      const text = await res.text();
+      let data;
+      try { data = JSON.parse(text); }
+      catch (e) { throw new Error("Server returned an unexpected response. " + text.slice(0, 120)); }
       if (!res.ok || data.error) throw new Error(data.error || ("HTTP " + res.status));
 
       ghStatusEl.className = "gh-status ok";
-      ghStatusEl.innerHTML = "Pushed " + data.fileCount + " file(s) to " + branch +
+      ghStatusEl.innerHTML = "Pushed " + data.fileCount + " file(s) to " + data.branch +
         ". <a class='gh-link' target='_blank' rel='noopener' href='" + data.commitUrl + "'>View commit →</a>";
     } catch (err) {
       let hint = err.message || "unknown error";

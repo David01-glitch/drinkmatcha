@@ -1,9 +1,13 @@
 <?php
-// Push files to a GitHub repo using the server-side GITHUB_TOKEN.
+// Push a ZIP's contents to a GitHub repo using the server-side GITHUB_TOKEN.
 // Used by the Phone Tool so users never paste a token.
 //
-// POST JSON: { repo, branch?, message?, files: [ {path, contentBase64}, ... ] }
-// Returns:  { ok, commitUrl, fileCount }
+// Accepts multipart/form-data:
+//   repo     = https://github.com/owner/repo
+//   branch   = main
+//   message  = commit message
+//   zip      = the .zip file (binary upload)
+// Returns: { ok, commitUrl, fileCount, branch }
 
 // Never leak HTML errors — always respond JSON
 ini_set('display_errors', '0');
@@ -33,11 +37,9 @@ if (!$token) {
   exit;
 }
 
-$input   = json_decode(file_get_contents('php://input'), true) ?: [];
-$repoUrl = trim($input['repo'] ?? '');
-$branch  = trim($input['branch'] ?? 'main') ?: 'main';
-$message = trim($input['message'] ?? 'Update phone numbers') ?: 'Update phone numbers';
-$files   = $input['files'] ?? [];
+$repoUrl = trim($_POST['repo'] ?? '');
+$branch  = trim($_POST['branch'] ?? 'main') ?: 'main';
+$message = trim($_POST['message'] ?? 'Update phone numbers') ?: 'Update phone numbers';
 
 if (!preg_match('#github\.com[/:]([^/]+)/([^/\s]+?)(?:\.git)?(?:[/?#].*)?$#i', $repoUrl, $m)) {
   http_response_code(400);
@@ -45,9 +47,54 @@ if (!preg_match('#github\.com[/:]([^/]+)/([^/\s]+?)(?:\.git)?(?:[/?#].*)?$#i', $
   exit;
 }
 $owner = $m[1]; $repo = $m[2];
-if (!is_array($files) || !count($files)) {
+
+if (empty($_FILES['zip']) || ($_FILES['zip']['error'] ?? 1) !== UPLOAD_ERR_OK) {
+  $code = $_FILES['zip']['error'] ?? 'none';
   http_response_code(400);
-  echo json_encode(['error' => 'No files to push']);
+  echo json_encode(['error' => 'No zip uploaded (upload error code: ' . $code . '). The file may be too large.']);
+  exit;
+}
+
+// --- Open the uploaded zip and collect text+binary files ---
+$zip = new ZipArchive();
+if ($zip->open($_FILES['zip']['tmp_name']) !== true) {
+  http_response_code(400);
+  echo json_encode(['error' => 'Could not open the uploaded zip']);
+  exit;
+}
+
+// Detect a common wrapper folder (e.g. "site-main/") so files land at repo root
+$prefix = '';
+if ($zip->numFiles > 0) {
+  $first = $zip->getNameIndex(0);
+  $slash = strpos($first, '/');
+  if ($slash !== false) {
+    $cand = substr($first, 0, $slash + 1);
+    $all = true;
+    for ($i = 1; $i < $zip->numFiles; $i++) {
+      if (strpos($zip->getNameIndex($i), $cand) !== 0) { $all = false; break; }
+    }
+    if ($all) $prefix = $cand;
+  }
+}
+
+$files = [];
+for ($i = 0; $i < $zip->numFiles; $i++) {
+  $name = $zip->getNameIndex($i);
+  if ($name === false || substr($name, -1) === '/') continue;      // skip dirs
+  if (strpos($name, '__MACOSX/') === 0) continue;                  // skip mac junk
+  if (basename($name) === '.DS_Store') continue;
+  $path = $prefix && strpos($name, $prefix) === 0 ? substr($name, strlen($prefix)) : $name;
+  if ($path === '') continue;
+  $content = $zip->getFromIndex($i);
+  if ($content === false) continue;
+  $files[] = ['path' => $path, 'b64' => base64_encode($content)];
+}
+$zip->close();
+
+if (!count($files)) {
+  http_response_code(400);
+  echo json_encode(['error' => 'Zip had no files to push']);
   exit;
 }
 
@@ -63,7 +110,7 @@ function gh($method, $path, $body = null) {
       'Content-Type: application/json',
       'User-Agent: matcha-phone-tool',
     ],
-    CURLOPT_TIMEOUT => 60,
+    CURLOPT_TIMEOUT => 120,
     CURLOPT_POSTFIELDS => $body !== null ? json_encode($body) : null,
   ]);
   $resp = curl_exec($ch);
@@ -78,25 +125,17 @@ function gh($method, $path, $body = null) {
 
 try {
   $base = "/repos/$owner/$repo";
-
-  // 1. Latest commit + base tree of the branch
   $ref = gh('GET', "$base/git/ref/heads/" . rawurlencode($branch));
   $latestSha = $ref['object']['sha'];
   $latestCommit = gh('GET', "$base/git/commits/$latestSha");
   $baseTree = $latestCommit['tree']['sha'];
 
-  // 2. Create a blob per file, build tree items
   $treeItems = [];
   foreach ($files as $f) {
-    $path = $f['path'] ?? null;
-    $content = $f['contentBase64'] ?? null;
-    if (!$path || $content === null) continue;
-    $blob = gh('POST', "$base/git/blobs", ['content' => $content, 'encoding' => 'base64']);
-    $treeItems[] = ['path' => $path, 'mode' => '100644', 'type' => 'blob', 'sha' => $blob['sha']];
+    $blob = gh('POST', "$base/git/blobs", ['content' => $f['b64'], 'encoding' => 'base64']);
+    $treeItems[] = ['path' => $f['path'], 'mode' => '100644', 'type' => 'blob', 'sha' => $blob['sha']];
   }
-  if (!count($treeItems)) throw new Exception('No valid files in payload');
 
-  // 3. Tree (overlaid on existing) -> commit -> move branch ref
   $tree = gh('POST', "$base/git/trees", ['base_tree' => $baseTree, 'tree' => $treeItems]);
   $commit = gh('POST', "$base/git/commits", [
     'message' => $message, 'tree' => $tree['sha'], 'parents' => [$latestSha],
