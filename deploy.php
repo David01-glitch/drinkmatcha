@@ -117,6 +117,52 @@ if ($action === 'github_repos') {
   exit;
 }
 
+// --- APP_STATUSES action: latest build status for many apps at once ---
+// Input: { apps: [ {appId, region, branch?}, ... ] }
+// Returns: { statuses: { appId: {status, jobId, commitMessage, startTime, endTime} } }
+if ($action === 'app_statuses') {
+  $items = $input['apps'] ?? [];
+  $byRegion = [];
+  foreach ($items as $it) {
+    $r = $it['region'] ?? 'us-east-1';
+    $byRegion[$r][] = $it;
+  }
+  $out = [];
+  foreach ($byRegion as $r => $list) {
+    try {
+      $client = new Aws\Amplify\AmplifyClient([
+        'region' => $r, 'version' => 'latest',
+        'credentials' => ['key' => $awsKey, 'secret' => $awsSecret],
+      ]);
+      $promises = [];
+      foreach ($list as $it) {
+        $promises[$it['appId']] = $client->listJobsAsync([
+          'appId' => $it['appId'],
+          'branchName' => $it['branch'] ?? 'main',
+          'maxResults' => 1,
+        ]);
+      }
+      $settled = GuzzleHttp\Promise\Utils::settle($promises)->wait();
+      foreach ($settled as $appId => $res) {
+        if ($res['state'] === 'fulfilled') {
+          $job = $res['value']['jobSummaries'][0] ?? null;
+          if ($job) {
+            $out[$appId] = [
+              'status'        => $job['status'] ?? null,
+              'jobId'         => $job['jobId'] ?? null,
+              'commitMessage' => $job['commitMessage'] ?? null,
+              'startTime'     => isset($job['startTime']) ? $job['startTime']->format(DATE_ATOM) : null,
+              'endTime'       => isset($job['endTime']) ? $job['endTime']->format(DATE_ATOM) : null,
+            ];
+          }
+        }
+      }
+    } catch (Throwable $e) { /* skip region on error */ }
+  }
+  echo json_encode(['statuses' => $out]);
+  exit;
+}
+
 // --- STATUS action: poll a deployment job's status ---
 if ($action === 'status') {
   $appId = trim($input['appId'] ?? '');

@@ -263,6 +263,20 @@
     border-color: rgba(239, 68, 68, 0.35);
     animation: none;
   }
+  /* Live auto-deploy status badge on table rows */
+  .live-deploy {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 999px;
+    margin-top: 4px; text-transform: uppercase; letter-spacing: 0.03em;
+  }
+  .live-deploy.building {
+    background: rgba(251,191,36,0.14); color: #fbbf24; border: 1px solid rgba(251,191,36,0.4);
+    animation: livePulse 1.1s ease-in-out infinite;
+  }
+  .live-deploy.building .ld-dot { width:6px; height:6px; border-radius:50%; background:#fbbf24; animation: blink 0.8s steps(2) infinite; }
+  .live-deploy.ok { background: rgba(123,211,137,0.12); color: var(--accent,#7bd389); border: 1px solid rgba(123,211,137,0.3); }
+  .live-deploy.fail { background: rgba(239,68,68,0.12); color: #f87171; border: 1px solid rgba(239,68,68,0.35); }
+  @keyframes livePulse { 0%,100% { box-shadow: 0 0 0 0 rgba(251,191,36,0); } 50% { box-shadow: 0 0 0 3px rgba(251,191,36,0.2); } }
   @keyframes glow {
     0%, 100% { box-shadow: 0 0 0 0 rgba(106,168,255,0); }
     50% { box-shadow: 0 0 0 4px rgba(106,168,255,0.18); }
@@ -1324,6 +1338,8 @@ async function showApp() {
   loadSharedRegionUsage();
   // Load shared archived-repos list (hidden from the Add Site picker)
   loadArchivedRepos();
+  // Start polling live auto-deploy status for Amplify-hosted rows
+  refreshAmplifyLiveStatuses();
   // Seed snapshot so first poll doesn't fire notifications for existing rows
   seedSnapshot();
   render();
@@ -1790,7 +1806,7 @@ function render() {
       <tr class="${rowClass}">
         <td style="white-space:nowrap;">${escapeHtml(r.date || '-')}${editorLine}</td>
         <td><strong>${escapeHtml(r.topic)}</strong>${recentBadge}${archTag}</td>
-        <td>${r.website ? `<a href="${escapeAttr(r.website)}" target="_blank" rel="noopener">${escapeHtml(shortUrl(r.website))}</a>` : '-'}</td>
+        <td>${r.website ? `<a href="${escapeAttr(r.website)}" target="_blank" rel="noopener">${escapeHtml(shortUrl(r.website))}</a>` : '-'}${(() => { const b = liveDeployBadge((r.appname||'').trim()); return b ? `<div>${b}</div>` : ''; })()}</td>
         <td>${r.github ? `<a href="${escapeAttr(r.github)}" target="_blank" rel="noopener">${escapeHtml(shortUrl(r.github))}</a>` : '-'}</td>
         <td>${escapeHtml(r.appname || '-')}</td>
         <td><span class="pill ${platformPill}">${escapeHtml(r.platform || '-')}</span></td>
@@ -2554,6 +2570,78 @@ function quickDeployRepo(url, branch) {
     const fb = document.getElementById('amplifyStatus');
     if (fb) { fb.style.color = 'var(--muted)'; fb.textContent = 'Repo loaded — pick an empty region, then click Deploy.'; }
   }, 100);
+}
+
+// ===== Live auto-deploy status on homepage rows =====
+// When a connected repo is pushed, Amplify auto-rebuilds. We poll the latest
+// build per Amplify app and show 🔄 Deploying / ✅ Deployed / ❌ Failed inline.
+let _amplifyLiveStatus = {};   // appId -> { status, commitMessage, endTime }
+let _liveStatusTimer = null;
+const BUILDING_STATES = new Set(['PENDING', 'PROVISIONING', 'RUNNING']);
+
+function liveDeployBadge(appId) {
+  const s = _amplifyLiveStatus[appId];
+  if (!s || !s.status) return '';
+  const st = s.status.toUpperCase();
+  const tip = s.commitMessage ? ` title="${escapeAttr(s.commitMessage)}"` : '';
+  if (BUILDING_STATES.has(st)) {
+    return `<span class="live-deploy building"${tip}><span class="ld-dot"></span> Deploying…</span>`;
+  }
+  if (st === 'SUCCEED') {
+    // Only show ✓ if it finished recently (last 30 min) to avoid clutter
+    const ended = s.endTime ? new Date(s.endTime).getTime() : 0;
+    if (ended && (Date.now() - ended) < 30 * 60 * 1000) {
+      return `<span class="live-deploy ok"${tip}>✅ Deployed</span>`;
+    }
+    return '';
+  }
+  if (st === 'FAILED') return `<span class="live-deploy fail"${tip}>❌ Deploy failed</span>`;
+  if (st === 'CANCELLED') return `<span class="live-deploy fail"${tip}>⊘ Cancelled</span>`;
+  return '';
+}
+
+async function refreshAmplifyLiveStatuses() {
+  try {
+    // Need an appId -> region map. Use the cached Amplify apps list.
+    let apps = (_regionUsageCache && _regionUsageCache.apps) || [];
+    if (!apps.length) {
+      const r = await fetch('deploy.php', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'list' }) });
+      const d = await r.json();
+      if (r.ok && !d.error) { _regionUsageCache = { ts: Date.now(), apps: d.apps || [], errors: d.errors || {} }; apps = _regionUsageCache.apps; }
+    }
+    const regionByApp = {};
+    for (const a of apps) regionByApp[a.appId] = a.region;
+
+    // Collect Amplify-hosted rows on the dashboard
+    const items = [];
+    const seen = new Set();
+    for (const r of records) {
+      const appId = (r.appname || '').trim();
+      if (!appId || seen.has(appId)) continue;
+      if (!/^d[a-z0-9]{10,}$/i.test(appId)) continue; // looks like an Amplify app id
+      const region = regionByApp[appId];
+      if (!region) continue; // unknown region — skip
+      items.push({ appId, region, branch: 'main' });
+      seen.add(appId);
+    }
+    if (!items.length) { scheduleLiveStatusPoll(false); return; }
+
+    const res = await fetch('deploy.php', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'app_statuses', apps: items }) });
+    const data = await res.json();
+    if (res.ok && data.statuses) {
+      _amplifyLiveStatus = data.statuses;
+      render();
+    }
+    // Poll faster if anything is currently building
+    const anyBuilding = Object.values(_amplifyLiveStatus).some(s => BUILDING_STATES.has((s.status || '').toUpperCase()));
+    scheduleLiveStatusPoll(anyBuilding);
+  } catch (e) {
+    scheduleLiveStatusPoll(false);
+  }
+}
+function scheduleLiveStatusPoll(fast) {
+  clearTimeout(_liveStatusTimer);
+  _liveStatusTimer = setTimeout(refreshAmplifyLiveStatuses, fast ? 8000 : 45000);
 }
 
 // Region capacity overview — which regions are empty / have room / full
