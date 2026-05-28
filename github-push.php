@@ -128,7 +128,7 @@ try {
   $base = "/repos/$owner/$repo";
 
   // Try to read the existing branch. If the repo is empty (no commits) or
-  // the branch doesn't exist yet, we'll create the first commit instead.
+  // the branch doesn't exist yet, we'll bootstrap it first.
   $latestSha = null;
   $baseTree = null;
   $isEmpty = false;
@@ -144,6 +144,27 @@ try {
     } else {
       throw $e;
     }
+  }
+
+  // GitHub's Git Data API (blobs/trees) cannot operate on a repo with zero
+  // commits. Bootstrap an empty repo by creating the first file via the
+  // Contents API, which DOES work on empty repos and creates the initial
+  // commit + branch. Then continue with the efficient single-commit flow.
+  $wasEmpty = $isEmpty;
+  if ($isEmpty) {
+    $bootstrap = $files[0];
+    $encPath = implode('/', array_map('rawurlencode', explode('/', $bootstrap['path'])));
+    gh('PUT', "$base/contents/$encPath", [
+      'message' => $message . ' (init)',
+      'content' => $bootstrap['b64'],
+      'branch'  => $branch,
+    ]);
+    // Re-read the freshly created branch so we have a base for the full commit
+    $ref = gh('GET', "$base/git/ref/heads/" . rawurlencode($branch));
+    $latestSha = $ref['object']['sha'];
+    $latestCommit = gh('GET', "$base/git/commits/$latestSha");
+    $baseTree = $latestCommit['tree']['sha'];
+    $isEmpty = false; // branch now exists — use PATCH below
   }
 
   // Upload blobs
@@ -178,8 +199,8 @@ try {
     'fileCount' => count($treeItems),
     'commitUrl' => "https://github.com/$owner/$repo/commit/" . $commit['sha'],
     'branch' => $branch,
-    'firstCommit' => $isEmpty,
-    'mode' => $replaceAll ? 'replaced-all' : ($isEmpty ? 'first-commit' : 'overlay'),
+    'firstCommit' => $wasEmpty,
+    'mode' => $replaceAll ? 'replaced-all' : ($wasEmpty ? 'first-commit' : 'overlay'),
   ]);
 } catch (Throwable $e) {
   http_response_code(500);
