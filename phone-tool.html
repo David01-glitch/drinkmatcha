@@ -636,9 +636,9 @@
     return detections.filter(d => d.replacement.trim() !== "" && d.replacement !== d.original);
   }
 
-  // Drop only ORPHAN </script> closers (no matching opener) — leaves valid
+  // Drop only ORPHAN closing-script tags (no matching opener) — leaves valid
   // balanced scripts (incl. the page's own) untouched. Cleans up the dangling
-  // closers left behind when a broken tag has a fake </script> inside a string.
+  // closers left behind when a broken tag has a fake closing tag inside a string.
   function removeOrphanScriptCloses(s) {
     const re = /<script\b[^>]*>|<\/script\s*>/gi;
     let out = "", last = 0, depth = 0, mm;
@@ -662,7 +662,7 @@
     s = s.replace(/<script\b[^>]*googletagmanager\.com[\s\S]*?<\/script\s*>/gi, "");
     // inline scripts that configure gtag / dataLayer / gtm.start — lazy
     s = s.replace(/<script\b(?![^>]*\bsrc\s*=)[^>]*>[\s\S]*?(?:gtag\s*\(|dataLayer|gtm\.start)[\s\S]*?<\/script\s*>/gi, "");
-    // a broken tag with a fake </script> inside leaves an orphan closer + junk:
+    // a broken tag with a fake closing tag inside leaves an orphan closer + junk:
     s = removeOrphanScriptCloses(s);
     s = s.replace(/^\s*'?\)\s*;?\s*$/gm, ""); // leftover  ');  lines
     s = s.replace(/\n{3,}/g, "\n\n");
