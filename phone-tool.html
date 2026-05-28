@@ -543,6 +543,7 @@
       input.addEventListener("input", () => {
         d.replacement = input.value;
         input.classList.toggle("changed", input.value.trim() !== "" && input.value !== d.original);
+        downloadBtn.disabled = !hasAnyChanges();
       });
 
       row.appendChild(orig);
