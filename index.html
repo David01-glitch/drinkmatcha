@@ -897,17 +897,6 @@
         </div>
         <div id="amplifyStatus" style="font-size:12px; color:var(--muted); margin-top:6px;"></div>
       </div>
-      <div class="field">
-        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-          <button class="btn" type="button" onclick="deployToHeroku()" id="herokuBtn" style="background:#79589f; color:#fff;">🟣 Deploy to Heroku</button>
-          <button class="btn" type="button" onclick="deleteFromHeroku()" id="herokuDeleteBtn" style="background:var(--danger,#ef4444); color:#fff;">🗑 Delete Heroku app</button>
-          <select id="f_heroku_region" style="max-width:160px;">
-            <option value="us">🇺🇸 Heroku US</option>
-            <option value="eu">🇪🇺 Heroku EU</option>
-          </select>
-        </div>
-        <div id="herokuStatus" style="font-size:12px; color:var(--muted); margin-top:6px;"></div>
-      </div>
       <div class="grid-2">
         <div class="field">
           <label>App Name (on hosting)</label>
@@ -1337,8 +1326,6 @@ function openModal(id) {
   });
   document.getElementById('detectStatus').textContent = '';
   document.getElementById('amplifyStatus').textContent = '';
-  const _hs = document.getElementById('herokuStatus');
-  if (_hs) { _hs.textContent = ''; delete _hs.dataset.phase; delete _hs.dataset.bstatus; }
   // Region/branch are deploy-time inputs, not stored per row — reset to defaults
   const regionEl = document.getElementById('f_region');
   if (regionEl && !regionEl.value) regionEl.value = 'us-east-1';
@@ -2525,151 +2512,6 @@ async function deleteFromAmplify() {
   } finally {
     btn.disabled = false;
     btn.textContent = '🗑 Delete Amplify app';
-  }
-}
-
-// ===================== HEROKU =====================
-async function deployToHeroku() {
-  const repo = document.getElementById('f_github').value.trim();
-  const region = document.getElementById('f_heroku_region').value;
-  const branch = (document.getElementById('f_branch').value.trim() || 'main');
-  const btn = document.getElementById('herokuBtn');
-  const status = document.getElementById('herokuStatus');
-
-  if (!repo) { status.style.color = 'var(--danger)'; status.textContent = 'Paste a GitHub URL first.'; return; }
-  if (!/^https?:\/\/github\.com\/[^/]+\/[^/]+/i.test(repo)) {
-    status.style.color = 'var(--danger)'; status.textContent = 'Must be a github.com URL.'; return;
-  }
-
-  btn.disabled = true; btn.textContent = '⏳ Deploying…';
-  status.style.color = 'var(--muted)';
-  status.textContent = 'Calling Heroku (creating app, starting build)…';
-
-  try {
-    const res = await fetch('heroku.php', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        action: 'deploy', repo, region, branch,
-        name: document.getElementById('f_topic').value.trim() || undefined,
-      }),
-    });
-    const data = await res.json();
-    if (!res.ok || data.error) throw new Error(data.error || ('HTTP ' + res.status));
-
-    // Save to the form so it persists with the row
-    document.getElementById('f_platform').value = 'Heroku';
-    document.getElementById('f_appname').value = data.appId;
-    if (data.url) document.getElementById('f_website').value = data.url;
-    document.getElementById('f_status').value = 'Live';
-    const fb = document.getElementById('f_feedback');
-    if (fb && !fb.value.trim()) fb.value = region === 'eu' ? 'Heroku · EU' : 'Heroku · US';
-
-    logAuditEvent('deploy', {
-      appId: data.appId, appName: document.getElementById('f_topic').value.trim() || data.appId,
-      region: 'heroku-' + region, repo,
-      details: { url: data.url, buildId: data.buildId, branch, platform: 'heroku' },
-    });
-
-    status.style.color = 'var(--accent)';
-    status.innerHTML = `⏳ Build started — <a href="${escapeAttr(data.url)}" target="_blank" rel="noopener">${escapeHtml(data.url)}</a> · <a href="${escapeAttr(data.consoleUrl)}" target="_blank" rel="noopener">Heroku dashboard</a>. Polling…`;
-
-    if (data.buildId) pollHerokuBuild({ appId: data.appId, buildId: data.buildId, url: data.url, consoleUrl: data.consoleUrl });
-  } catch (e) {
-    status.style.color = 'var(--danger)';
-    status.textContent = '✗ ' + (e.message || 'Deploy failed');
-  } finally {
-    btn.disabled = false; btn.textContent = '🟣 Deploy to Heroku';
-  }
-}
-
-async function pollHerokuBuild({ appId, buildId, url, consoleUrl }) {
-  const status = document.getElementById('herokuStatus');
-  if (!status) return;
-  const TERMINAL = new Set(['succeeded', 'failed']);
-  const startedAt = Date.now();
-  const MAX_BUILD_MS = 10 * 60 * 1000;
-  const MAX_VERIFY_MS = 3 * 60 * 1000;
-
-  let timerId = setInterval(() => {
-    if (!document.body.contains(status)) { clearInterval(timerId); return; }
-    const el = fmtElapsed(Date.now() - startedAt);
-    if (status.dataset.phase !== 'verify') {
-      status.innerHTML = `⏳ <strong>${escapeHtml(status.dataset.bstatus || 'building')}</strong> · running for <strong>${el}</strong> — <a href="${escapeAttr(consoleUrl)}" target="_blank" rel="noopener">Heroku dashboard</a>`;
-    }
-  }, 1000);
-
-  let buildEnded = null, finalStatus = null;
-  while (Date.now() - startedAt < MAX_BUILD_MS) {
-    await new Promise(r => setTimeout(r, 5000));
-    try {
-      const res = await fetch('heroku.php', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'status', appId, buildId }),
-      });
-      const d = await res.json();
-      if (!res.ok || d.error) throw new Error(d.error || ('HTTP ' + res.status));
-      status.dataset.bstatus = d.status || 'building';
-      if (TERMINAL.has(d.status)) { finalStatus = d.status; buildEnded = Date.now(); break; }
-    } catch (e) { /* keep polling */ }
-  }
-
-  if (finalStatus === 'failed') {
-    clearInterval(timerId);
-    status.style.color = 'var(--danger)';
-    status.innerHTML = `❌ <strong>Build FAILED</strong> after ${escapeHtml(fmtElapsed(buildEnded - startedAt))} — <a href="${escapeAttr(consoleUrl + '/activity')}" target="_blank" rel="noopener">open Heroku build log</a> for the reason.`;
-    return;
-  }
-  if (!finalStatus) {
-    clearInterval(timerId);
-    status.style.color = 'var(--muted)';
-    status.innerHTML = `⌛ Still building after 10 min. <a href="${escapeAttr(consoleUrl)}" target="_blank" rel="noopener">Check Heroku dashboard</a>.`;
-    return;
-  }
-
-  // succeeded → verify URL is live
-  status.dataset.phase = 'verify';
-  const verifyStart = Date.now();
-  while (Date.now() - verifyStart < MAX_VERIFY_MS) {
-    status.innerHTML = `🔄 <strong>Build done in ${escapeHtml(fmtElapsed(buildEnded - startedAt))}</strong> · verifying site is live (${escapeHtml(fmtElapsed(Date.now() - startedAt))})…`;
-    if (await urlIsLive(url)) {
-      clearInterval(timerId);
-      status.style.color = 'var(--ok, #4ade80)';
-      status.innerHTML = `✅ <strong>Deployed in ${escapeHtml(fmtElapsed(Date.now() - startedAt))}</strong> — <a href="${escapeAttr(url)}" target="_blank" rel="noopener">${escapeHtml(url)}</a> · <a href="${escapeAttr(consoleUrl)}" target="_blank" rel="noopener">Heroku dashboard</a>`;
-      return;
-    }
-    await new Promise(r => setTimeout(r, 4000));
-  }
-  clearInterval(timerId);
-  status.style.color = 'var(--muted)';
-  status.innerHTML = `⚠ Heroku reported success but URL didn't respond 200 within 3 min. <a href="${escapeAttr(url)}" target="_blank" rel="noopener">Try opening it</a>.`;
-}
-
-async function deleteFromHeroku() {
-  const appId = document.getElementById('f_appname').value.trim();
-  const btn = document.getElementById('herokuDeleteBtn');
-  const status = document.getElementById('herokuStatus');
-  if (!appId) { status.style.color = 'var(--danger)'; status.textContent = 'No Heroku app name found in this row.'; return; }
-  if (!confirm(`Delete Heroku app "${appId}"? This is permanent and the site goes offline.`)) return;
-
-  btn.disabled = true; btn.textContent = '⏳ Deleting…';
-  status.style.color = 'var(--muted)'; status.textContent = 'Calling Heroku DeleteApp…';
-  try {
-    const res = await fetch('heroku.php', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'delete', appId }),
-    });
-    const data = await res.json();
-    if (!res.ok || data.error) throw new Error(data.error || ('HTTP ' + res.status));
-    document.getElementById('f_appname').value = '';
-    document.getElementById('f_website').value = '';
-    document.getElementById('f_status').value = 'Draft';
-    logAuditEvent('delete', { appId: data.deletedAppId, appName: data.deletedAppId, region: 'heroku', details: { platform: 'heroku', source: 'form-button' } });
-    status.style.color = 'var(--ok, #4ade80)';
-    status.textContent = `✓ Deleted Heroku app ${data.deletedAppId}.`;
-  } catch (e) {
-    status.style.color = 'var(--danger)'; status.textContent = '✗ ' + (e.message || 'Delete failed');
-  } finally {
-    btn.disabled = false; btn.textContent = '🗑 Delete Heroku app';
   }
 }
 
