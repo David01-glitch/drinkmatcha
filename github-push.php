@@ -41,7 +41,7 @@ $repoUrl = trim($_POST['repo'] ?? '');
 $branch  = trim($_POST['branch'] ?? 'main') ?: 'main';
 $message = trim($_POST['message'] ?? 'Update phone numbers') ?: 'Update phone numbers';
 
-if (!preg_match('#github\.com[/:]([^/]+)/([^/\s]+?)(?:\.git)?(?:[/?#].*)?$#i', $repoUrl, $m)) {
+if (!preg_match('~github\.com[/:]([^/]+)/([^/\s]+?)(?:\.git)?(?:[/?#].*)?$~i', $repoUrl, $m)) {
   http_response_code(400);
   echo json_encode(['error' => 'Invalid GitHub repo URL']);
   exit;
