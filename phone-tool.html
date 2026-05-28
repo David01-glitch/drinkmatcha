@@ -669,6 +669,16 @@
     return s;
   }
 
+  // Insert a snippet into the document head, robust to malformed HTML:
+  //  1) right after <head ...>   2) right before </head>   3) after <html ...>
+  //  4) otherwise prepend to the file
+  function insertTagInHead(html, snippet) {
+    if (/<head[^>]*>/i.test(html)) return html.replace(/<head[^>]*>/i, m => m + snippet);
+    if (/<\/head\s*>/i.test(html)) return html.replace(/<\/head\s*>/i, m => snippet + m);
+    if (/<html[^>]*>/i.test(html)) return html.replace(/<html[^>]*>/i, m => m + "\n" + snippet);
+    return snippet + html;
+  }
+
   // Apply ALL changes (phone numbers + clean Google tag install) into zipObj.
   // Returns the list of file paths that actually changed.
   function applyAllChanges() {
@@ -683,12 +693,16 @@
       let content = f.content;
       // phone number replacements
       phones.forEach(d => { content = content.replace(new RegExp(escapeRegExp(d.original), "g"), d.replacement.trim()); });
-      // clean Google tag install: strip any existing (clean/broken) tag, then insert fresh
-      if (addId && isHtml(f.path) && /<head[^>]*>/i.test(content)) {
+      // clean Google tag install: strip any existing (clean/broken) tag, then insert fresh.
+      // Handles pages with a normal <head>, AND malformed pages that only have
+      // </head> (no opening tag) or only <html>.
+      const hasHeadRegion = /<head[^>]*>/i.test(content) || /<\/head\s*>/i.test(content) || /<html[^>]*>/i.test(content);
+      if (addId && isHtml(f.path) && hasHeadRegion) {
         content = stripGoogleTags(content);
-        content = content.replace(/<head[^>]*>/i, m => m + headInsert);
-        if (bodyInsert && /<body[^>]*>/i.test(content)) {
-          content = content.replace(/<body[^>]*>/i, m => m + bodyInsert);
+        content = insertTagInHead(content, headInsert);
+        if (bodyInsert) {
+          if (/<body[^>]*>/i.test(content)) content = content.replace(/<body[^>]*>/i, m => m + bodyInsert);
+          else content = insertTagInHead(content, bodyInsert);
         }
       }
       if (content !== f.content) {
