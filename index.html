@@ -767,6 +767,7 @@
       <!-- Tab switcher -->
       <div style="display:flex; gap:8px; margin-bottom:14px; border-bottom:1px solid var(--border, #2a2a3a); padding-bottom:8px;">
         <button class="btn" id="tabAppsBtn" onclick="switchAmplifyTab('apps')" style="background:var(--accent, #4ade80); color:#000;">☁ Apps</button>
+        <button class="btn" id="tabGithubBtn" onclick="switchAmplifyTab('github')">🐙 GitHub Repos</button>
         <button class="btn" id="tabRegionsBtn" onclick="switchAmplifyTab('regions')">🌍 Available Regions</button>
         <button class="btn" id="tabActivityBtn" onclick="switchAmplifyTab('activity')">📋 Activity Log</button>
       </div>
@@ -789,6 +790,32 @@
             </thead>
             <tbody id="amplifyTableBody">
               <tr><td colspan="7" style="text-align:center; color:var(--muted); padding:30px;">No data yet — click ↻ Refresh.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- GITHUB TAB -->
+      <div id="amplifyTabGithub" style="display:none;">
+        <div style="display:flex; gap:8px; margin-bottom:10px; align-items:center; flex-wrap:wrap;">
+          <button class="btn" id="ghFilterAll" onclick="setGithubFilter('all')" style="background:var(--accent,#4ade80); color:#000; font-size:12px; padding:4px 12px;">All</button>
+          <button class="btn" id="ghFilterDeployed" onclick="setGithubFilter('deployed')" style="font-size:12px; padding:4px 12px;">✓ Deployed</button>
+          <button class="btn" id="ghFilterUndeployed" onclick="setGithubFilter('undeployed')" style="font-size:12px; padding:4px 12px;">○ Not deployed</button>
+          <span id="githubStatus" style="font-size:13px; color:var(--muted); margin-left:auto;">Loading repos…</span>
+        </div>
+        <div style="overflow:auto; max-height: 58vh;">
+          <table class="tbl" style="width:100%;">
+            <thead>
+              <tr>
+                <th>Repository</th>
+                <th>Visibility</th>
+                <th>Last updated</th>
+                <th>Status</th>
+                <th style="text-align:right;">Action</th>
+              </tr>
+            </thead>
+            <tbody id="githubTableBody">
+              <tr><td colspan="5" style="text-align:center; color:var(--muted); padding:30px;">Loading…</td></tr>
             </tbody>
           </table>
         </div>
@@ -872,8 +899,14 @@
         <div id="detectStatus" style="font-size:12px; color:var(--muted); margin-top:6px;"></div>
       </div>
       <div class="field">
-        <label>GitHub Link</label>
-        <input id="f_github" placeholder="https://github.com/..."/>
+        <label>GitHub Link <span style="color:var(--muted); text-transform:none; letter-spacing:0; font-weight:400;">— or pick an undeployed repo →</span></label>
+        <div style="display:flex; gap:8px;">
+          <input id="f_github" placeholder="https://github.com/..." style="flex:1;"/>
+          <select id="f_github_picker" onchange="onGithubPick()" style="max-width:240px;">
+            <option value="">📦 Pick undeployed repo…</option>
+          </select>
+        </div>
+        <div id="githubPickHint" style="font-size:11px; color:var(--muted); margin-top:4px;"></div>
       </div>
       <div class="grid-2">
         <div class="field">
@@ -1355,6 +1388,9 @@ function openModal(id) {
 
   // Fetch live region usage so user sees which regions are empty / full
   refreshRegionUsage();
+  // Populate the undeployed-repo picker dropdown
+  document.getElementById('f_github_picker').selectedIndex = 0;
+  populateGithubPicker();
 
   // Populate Topic Name suggestions from existing records (unique, most-recent first)
   const dl = document.getElementById('topicSuggestions');
@@ -2162,6 +2198,7 @@ function switchAmplifyTab(which) {
   _amplifyTab = which;
   const tabs = {
     apps:     { panel: 'amplifyTabApps',     btn: 'tabAppsBtn' },
+    github:   { panel: 'amplifyTabGithub',   btn: 'tabGithubBtn' },
     regions:  { panel: 'amplifyTabRegions',  btn: 'tabRegionsBtn' },
     activity: { panel: 'amplifyTabActivity', btn: 'tabActivityBtn' },
   };
@@ -2176,14 +2213,174 @@ function switchAmplifyTab(which) {
     }
   }
   if (which === 'apps') loadAmplifyApps(true);      // always realtime
+  else if (which === 'github') loadGithubRepos(true);
   else if (which === 'regions') loadRegionsView(true);
   else if (which === 'activity') loadAuditLog();
 }
 // Called by ↻ Refresh — refreshes whichever tab is active (force-fresh)
 function loadAmplifyTab() {
   if (_amplifyTab === 'activity') loadAuditLog();
+  else if (_amplifyTab === 'github') loadGithubRepos(true);
   else if (_amplifyTab === 'regions') loadRegionsView(true);
   else loadAmplifyApps(true); // force bypass cache
+}
+
+// --- GitHub repos: list all + mark deployed (has an Amplify app) ---
+let _githubReposCache = null;     // { ts, repos }
+let _githubFilter = 'all';
+function normalizeRepoUrl(u) {
+  return (u || '').trim().toLowerCase().replace(/\.git$/, '').replace(/\/$/, '');
+}
+// Set of normalized repo URLs that have an Amplify app deployed
+function deployedRepoSet() {
+  const set = new Set();
+  const apps = (_regionUsageCache && _regionUsageCache.apps) || [];
+  for (const a of apps) {
+    if (a.repository) set.add(normalizeRepoUrl(a.repository));
+  }
+  // Also count dashboard rows that have a github link + a hosting app id
+  for (const r of records) {
+    if ((r.github || '').trim() && (r.appname || '').trim()) {
+      set.add(normalizeRepoUrl(r.github));
+    }
+  }
+  return set;
+}
+async function loadGithubRepos(force = false) {
+  const status = document.getElementById('githubStatus');
+  const body = document.getElementById('githubTableBody');
+  const btn = document.getElementById('amplifyReloadBtn');
+  btn.disabled = true; btn.textContent = '⏳ Loading…';
+  status.style.color = 'var(--muted)';
+  status.textContent = 'Loading repos…';
+  body.innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--muted); padding:30px;">Loading…</td></tr>';
+
+  try {
+    // Make sure we have fresh Amplify apps to compute deployed status
+    if (force || !_regionUsageCache) {
+      try {
+        const r = await fetch('deploy.php', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'list' }) });
+        const d = await r.json();
+        if (r.ok && !d.error) { _regionUsageCache = { ts: Date.now(), apps: d.apps || [], errors: d.errors || {} }; saveSharedRegionUsage(_regionUsageCache); }
+      } catch {}
+    }
+    // Fetch repos
+    let repos;
+    if (!force && _githubReposCache && (Date.now() - _githubReposCache.ts) < 60_000) {
+      repos = _githubReposCache.repos;
+    } else {
+      const res = await fetch('deploy.php', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'github_repos' }) });
+      const data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error || ('HTTP ' + res.status));
+      repos = data.repos || [];
+      _githubReposCache = { ts: Date.now(), repos };
+    }
+    renderGithubRepos();
+  } catch (e) {
+    status.style.color = 'var(--danger)';
+    status.textContent = '⚠ ' + (e.message || 'Failed. Is GITHUB_TOKEN set in Railway?');
+    body.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--danger); padding:30px;">${escapeHtml(e.message || 'error')}</td></tr>`;
+  } finally {
+    btn.disabled = false; btn.textContent = '↻ Refresh';
+  }
+}
+function setGithubFilter(f) {
+  _githubFilter = f;
+  for (const [id, val] of [['ghFilterAll','all'],['ghFilterDeployed','deployed'],['ghFilterUndeployed','undeployed']]) {
+    const b = document.getElementById(id);
+    if (b) { b.style.background = (val === f) ? 'var(--accent,#4ade80)' : ''; b.style.color = (val === f) ? '#000' : ''; }
+  }
+  renderGithubRepos();
+}
+function renderGithubRepos() {
+  const status = document.getElementById('githubStatus');
+  const body = document.getElementById('githubTableBody');
+  const repos = (_githubReposCache && _githubReposCache.repos) || [];
+  const deployed = deployedRepoSet();
+
+  const withStatus = repos.map(r => ({ ...r, isDeployed: deployed.has(normalizeRepoUrl(r.url)) }));
+  const deployedCount = withStatus.filter(r => r.isDeployed).length;
+  const undeployedCount = withStatus.length - deployedCount;
+
+  let list = withStatus;
+  if (_githubFilter === 'deployed') list = withStatus.filter(r => r.isDeployed);
+  else if (_githubFilter === 'undeployed') list = withStatus.filter(r => !r.isDeployed);
+
+  if (!list.length) {
+    body.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--muted); padding:30px;">No repos in this filter.</td></tr>`;
+  } else {
+    body.innerHTML = list.map(r => `
+      <tr>
+        <td><strong>${escapeHtml(r.name)}</strong>${r.description ? `<div style="font-size:11px; color:var(--muted); margin-top:2px;">${escapeHtml((r.description||'').slice(0,60))}</div>` : ''}</td>
+        <td style="font-size:12px;">${r.private ? '🔒 Private' : '🌐 Public'}</td>
+        <td style="font-size:12px; color:var(--muted);">${r.updatedAt ? new Date(r.updatedAt).toLocaleDateString() : '-'}</td>
+        <td>${r.isDeployed ? '<span style="color:var(--ok,#4ade80);">✓ Deployed</span>' : '<span style="color:var(--muted);">○ Not deployed</span>'}</td>
+        <td style="text-align:right;">
+          ${r.isDeployed
+            ? `<a href="${escapeAttr(r.url)}" target="_blank" rel="noopener" class="btn" style="font-size:12px; padding:4px 10px;">View repo</a>`
+            : `<button class="btn primary" style="font-size:12px; padding:4px 10px;" onclick="quickDeployRepo('${escapeAttr(r.url)}','${escapeAttr(r.defaultBranch||'main')}')">🚀 Deploy</button>`}
+        </td>
+      </tr>`).join('');
+  }
+  status.style.color = 'var(--ok, #4ade80)';
+  status.textContent = `${withStatus.length} repos · ${deployedCount} deployed · ${undeployedCount} not deployed`;
+  document.getElementById('amplifyCount').textContent = `${undeployedCount} undeployed / ${withStatus.length} repos`;
+}
+// Populate the New Website "pick undeployed repo" dropdown
+async function populateGithubPicker() {
+  const sel = document.getElementById('f_github_picker');
+  const hint = document.getElementById('githubPickHint');
+  if (!sel) return;
+  sel.innerHTML = '<option value="">📦 Loading repos…</option>';
+  try {
+    // Ensure we have repos + amplify apps to compute deployed status
+    if (!_githubReposCache || (Date.now() - _githubReposCache.ts) > 60_000) {
+      const res = await fetch('deploy.php', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'github_repos' }) });
+      const data = await res.json();
+      if (res.ok && !data.error) _githubReposCache = { ts: Date.now(), repos: data.repos || [] };
+    }
+    if (!_regionUsageCache) {
+      try {
+        const r = await fetch('deploy.php', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'list' }) });
+        const d = await r.json();
+        if (r.ok && !d.error) { _regionUsageCache = { ts: Date.now(), apps: d.apps || [], errors: d.errors || {} }; }
+      } catch {}
+    }
+    const repos = (_githubReposCache && _githubReposCache.repos) || [];
+    const deployed = deployedRepoSet();
+    const undeployed = repos.filter(r => !deployed.has(normalizeRepoUrl(r.url)));
+
+    sel.innerHTML = '<option value="">📦 Pick undeployed repo…</option>' +
+      undeployed.map(r => `<option value="${escapeAttr(r.url)}" data-branch="${escapeAttr(r.defaultBranch || 'main')}">${escapeHtml(r.name)}${r.private ? ' 🔒' : ''}</option>`).join('');
+    if (hint) hint.textContent = `${undeployed.length} undeployed repo(s) available · ${repos.length} total`;
+  } catch (e) {
+    sel.innerHTML = '<option value="">📦 (repo list unavailable)</option>';
+    if (hint) hint.textContent = 'Could not load repos: ' + (e.message || 'error');
+  }
+}
+function onGithubPick() {
+  const sel = document.getElementById('f_github_picker');
+  const url = sel.value;
+  if (!url) return;
+  document.getElementById('f_github').value = url;
+  const opt = sel.options[sel.selectedIndex];
+  const branch = opt?.dataset.branch || 'main';
+  const b = document.getElementById('f_branch'); if (b) b.value = branch;
+  // Auto-derive topic from repo name if topic is empty
+  const topicEl = document.getElementById('f_topic');
+  if (topicEl && !topicEl.value.trim()) topicEl.value = (opt.textContent || '').replace(' 🔒', '').trim();
+}
+
+// Deploy straight from the GitHub tab: close manager, open New Website prefilled
+function quickDeployRepo(url, branch) {
+  closeAmplifyManager();
+  openModal();
+  setTimeout(() => {
+    document.getElementById('f_github').value = url;
+    const b = document.getElementById('f_branch'); if (b) b.value = branch || 'main';
+    const fb = document.getElementById('amplifyStatus');
+    if (fb) { fb.style.color = 'var(--muted)'; fb.textContent = 'Repo loaded — pick an empty region, then click Deploy.'; }
+  }, 100);
 }
 
 // Region capacity overview — which regions are empty / have room / full

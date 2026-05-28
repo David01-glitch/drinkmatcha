@@ -70,6 +70,53 @@ if ($action === 'diag') {
   exit;
 }
 
+// --- GITHUB_REPOS action: list all repos for the token owner ---
+if ($action === 'github_repos') {
+  $token = getenv('GITHUB_TOKEN');
+  if (!$token) {
+    http_response_code(500);
+    echo json_encode(['error' => 'GITHUB_TOKEN not configured on server']);
+    exit;
+  }
+  $all = [];
+  $page = 1;
+  do {
+    $ch = curl_init("https://api.github.com/user/repos?per_page=100&sort=updated&page=$page&affiliation=owner");
+    curl_setopt_array($ch, [
+      CURLOPT_RETURNTRANSFER => true,
+      CURLOPT_HTTPHEADER => [
+        'Authorization: Bearer ' . $token,
+        'Accept: application/vnd.github+json',
+        'User-Agent: matcha-dashboard',
+      ],
+      CURLOPT_TIMEOUT => 20,
+    ]);
+    $resp = curl_exec($ch);
+    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    if ($code !== 200) {
+      http_response_code(500);
+      echo json_encode(['error' => 'GitHub API HTTP ' . $code, 'detail' => substr($resp, 0, 200)]);
+      exit;
+    }
+    $batch = json_decode($resp, true) ?: [];
+    foreach ($batch as $r) {
+      $all[] = [
+        'name'        => $r['name'] ?? null,
+        'fullName'    => $r['full_name'] ?? null,
+        'url'         => $r['html_url'] ?? null,
+        'private'     => $r['private'] ?? false,
+        'description' => $r['description'] ?? null,
+        'updatedAt'   => $r['updated_at'] ?? null,
+        'defaultBranch' => $r['default_branch'] ?? 'main',
+      ];
+    }
+    $page++;
+  } while (count($batch) === 100 && $page <= 10);
+  echo json_encode(['repos' => $all]);
+  exit;
+}
+
 // --- STATUS action: poll a deployment job's status ---
 if ($action === 'status') {
   $appId = trim($input['appId'] ?? '');
