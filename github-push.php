@@ -125,28 +125,56 @@ function gh($method, $path, $body = null) {
 
 try {
   $base = "/repos/$owner/$repo";
-  $ref = gh('GET', "$base/git/ref/heads/" . rawurlencode($branch));
-  $latestSha = $ref['object']['sha'];
-  $latestCommit = gh('GET', "$base/git/commits/$latestSha");
-  $baseTree = $latestCommit['tree']['sha'];
 
+  // Try to read the existing branch. If the repo is empty (no commits) or
+  // the branch doesn't exist yet, we'll create the first commit instead.
+  $latestSha = null;
+  $baseTree = null;
+  $isEmpty = false;
+  try {
+    $ref = gh('GET', "$base/git/ref/heads/" . rawurlencode($branch));
+    $latestSha = $ref['object']['sha'];
+    $latestCommit = gh('GET', "$base/git/commits/$latestSha");
+    $baseTree = $latestCommit['tree']['sha'];
+  } catch (Throwable $e) {
+    $msg = $e->getMessage();
+    if (stripos($msg, 'empty') !== false || stripos($msg, 'Not Found') !== false || stripos($msg, '409') !== false || stripos($msg, '404') !== false) {
+      $isEmpty = true; // first commit to a fresh repo / new branch
+    } else {
+      throw $e;
+    }
+  }
+
+  // Upload blobs
   $treeItems = [];
   foreach ($files as $f) {
     $blob = gh('POST', "$base/git/blobs", ['content' => $f['b64'], 'encoding' => 'base64']);
     $treeItems[] = ['path' => $f['path'], 'mode' => '100644', 'type' => 'blob', 'sha' => $blob['sha']];
   }
 
-  $tree = gh('POST', "$base/git/trees", ['base_tree' => $baseTree, 'tree' => $treeItems]);
-  $commit = gh('POST', "$base/git/commits", [
-    'message' => $message, 'tree' => $tree['sha'], 'parents' => [$latestSha],
-  ]);
-  gh('PATCH', "$base/git/refs/heads/" . rawurlencode($branch), ['sha' => $commit['sha']]);
+  // Build the tree (overlay existing tree if we have one)
+  $treeBody = ['tree' => $treeItems];
+  if ($baseTree) $treeBody['base_tree'] = $baseTree;
+  $tree = gh('POST', "$base/git/trees", $treeBody);
+
+  // Commit (with parent if branch existed, none for the first commit)
+  $commitBody = ['message' => $message, 'tree' => $tree['sha']];
+  $commitBody['parents'] = $latestSha ? [$latestSha] : [];
+  $commit = gh('POST', "$base/git/commits", $commitBody);
+
+  // Move the branch: PATCH if it exists, CREATE if it's new/empty
+  if ($isEmpty) {
+    gh('POST', "$base/git/refs", ['ref' => 'refs/heads/' . $branch, 'sha' => $commit['sha']]);
+  } else {
+    gh('PATCH', "$base/git/refs/heads/" . rawurlencode($branch), ['sha' => $commit['sha']]);
+  }
 
   echo json_encode([
     'ok' => true,
     'fileCount' => count($treeItems),
     'commitUrl' => "https://github.com/$owner/$repo/commit/" . $commit['sha'],
     'branch' => $branch,
+    'firstCommit' => $isEmpty,
   ]);
 } catch (Throwable $e) {
   http_response_code(500);
