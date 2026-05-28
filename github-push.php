@@ -37,9 +37,10 @@ if (!$token) {
   exit;
 }
 
-$repoUrl = trim($_POST['repo'] ?? '');
-$branch  = trim($_POST['branch'] ?? 'main') ?: 'main';
-$message = trim($_POST['message'] ?? 'Update phone numbers') ?: 'Update phone numbers';
+$repoUrl    = trim($_POST['repo'] ?? '');
+$branch     = trim($_POST['branch'] ?? 'main') ?: 'main';
+$message    = trim($_POST['message'] ?? 'Update phone numbers') ?: 'Update phone numbers';
+$replaceAll = ($_POST['replaceAll'] ?? '0') === '1';
 
 if (!preg_match('~github\.com[/:]([^/]+)/([^/\s]+?)(?:\.git)?(?:[/?#].*)?$~i', $repoUrl, $m)) {
   http_response_code(400);
@@ -152,9 +153,12 @@ try {
     $treeItems[] = ['path' => $f['path'], 'mode' => '100644', 'type' => 'blob', 'sha' => $blob['sha']];
   }
 
-  // Build the tree (overlay existing tree if we have one)
+  // Build the tree.
+  //  - replaceAll: omit base_tree -> repo ends up with ONLY the zip's files
+  //    (everything previously in the repo is removed)
+  //  - otherwise: overlay on existing tree (replace matching paths, keep rest)
   $treeBody = ['tree' => $treeItems];
-  if ($baseTree) $treeBody['base_tree'] = $baseTree;
+  if ($baseTree && !$replaceAll) $treeBody['base_tree'] = $baseTree;
   $tree = gh('POST', "$base/git/trees", $treeBody);
 
   // Commit (with parent if branch existed, none for the first commit)
@@ -175,6 +179,7 @@ try {
     'commitUrl' => "https://github.com/$owner/$repo/commit/" . $commit['sha'],
     'branch' => $branch,
     'firstCommit' => $isEmpty,
+    'mode' => $replaceAll ? 'replaced-all' : ($isEmpty ? 'first-commit' : 'overlay'),
   ]);
 } catch (Throwable $e) {
   http_response_code(500);
