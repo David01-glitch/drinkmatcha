@@ -238,6 +238,31 @@
       </div>
       <div class="gh-status" id="ghStatus"></div>
     </div>
+
+    <div class="gh">
+      <h2>Replace Repo &amp; Reverse</h2>
+      <p class="sub2">Upload a zip + repo URL → <strong>Replace</strong> backs up the current repo (to a hidden <code>_backup_&lt;branch&gt;</code> branch) and overwrites it with your zip's files.
+        Changed your mind? <strong>↩ Reverse</strong> restores the backed-up version. Uses the dashboard's GitHub token.</p>
+      <div class="field">
+        <label>Repository URL</label>
+        <input type="text" id="rpRepo" placeholder="https://github.com/yourname/yourrepo" autocomplete="off">
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label>Branch</label>
+          <input type="text" id="rpBranch" placeholder="main" value="main" autocomplete="off">
+        </div>
+        <div class="field">
+          <label>New content ZIP</label>
+          <input type="file" id="rpZip" accept=".zip">
+        </div>
+      </div>
+      <div class="row" style="gap:10px;">
+        <button id="rpReplaceBtn">⇄ Replace repo with this zip</button>
+        <button class="ghost" id="rpReverseBtn">↩ Reverse (restore previous)</button>
+      </div>
+      <div class="gh-status" id="rpStatus"></div>
+    </div>
   </div>
 </div>
 
@@ -579,6 +604,85 @@
       setGhStatus("Push failed: " + hint, "err");
     } finally {
       pushBtn.disabled = false;
+    }
+  });
+
+  // ---------- Replace Repo & Reverse ----------
+  const rpRepoEl = document.getElementById("rpRepo");
+  const rpBranchEl = document.getElementById("rpBranch");
+  const rpZipEl = document.getElementById("rpZip");
+  const rpReplaceBtn = document.getElementById("rpReplaceBtn");
+  const rpReverseBtn = document.getElementById("rpReverseBtn");
+  const rpStatusEl = document.getElementById("rpStatus");
+
+  // remember repo/branch
+  const RP_REPO_KEY = "phoneTool_rpRepo", RP_BRANCH_KEY = "phoneTool_rpBranch";
+  (function () {
+    const r = lsGet(RP_REPO_KEY); if (r) rpRepoEl.value = r;
+    const b = lsGet(RP_BRANCH_KEY); if (b) rpBranchEl.value = b;
+  })();
+  rpRepoEl.addEventListener("input", () => lsSet(RP_REPO_KEY, rpRepoEl.value));
+  rpBranchEl.addEventListener("input", () => lsSet(RP_BRANCH_KEY, rpBranchEl.value));
+
+  function setRpStatus(msg, cls) {
+    rpStatusEl.textContent = msg || "";
+    rpStatusEl.className = "gh-status" + (cls ? " " + cls : "");
+  }
+
+  rpReplaceBtn.addEventListener("click", async () => {
+    const repoUrl = (rpRepoEl.value || "").trim();
+    const branch = (rpBranchEl.value || "main").trim();
+    const zipFile = rpZipEl.files && rpZipEl.files[0];
+    if (!/github\.com[/:][^/]+\/[^/]+/i.test(repoUrl)) { setRpStatus("Enter a valid GitHub repo URL.", "err"); return; }
+    if (!zipFile) { setRpStatus("Choose a ZIP with the new content.", "err"); return; }
+    if (!confirm("Replace ALL contents of " + repoUrl + " (" + branch + ") with this zip?\n\nThe current version is backed up and can be reversed.")) return;
+
+    rpReplaceBtn.disabled = true; rpReverseBtn.disabled = true;
+    setRpStatus("Backing up current repo and replacing…");
+    try {
+      const fd = new FormData();
+      fd.append("action", "replace");
+      fd.append("repo", repoUrl);
+      fd.append("branch", branch);
+      fd.append("zip", zipFile, "replace.zip");
+      const res = await fetch("/github-replace.php", { method: "POST", body: fd });
+      const text = await res.text();
+      let data; try { data = JSON.parse(text); } catch (e) { throw new Error("Unexpected server response: " + text.slice(0, 120)); }
+      if (!res.ok || data.error) throw new Error(data.error || ("HTTP " + res.status));
+      rpStatusEl.className = "gh-status ok";
+      rpStatusEl.innerHTML = "Replaced with " + data.fileCount + " file(s)" +
+        (data.backedUp ? " (previous version backed up — reversible)" : " (repo was empty, nothing to back up)") +
+        ". <a class='gh-link' target='_blank' rel='noopener' href='" + data.commitUrl + "'>View commit →</a>";
+    } catch (err) {
+      setRpStatus("Replace failed: " + (err.message || "unknown"), "err");
+    } finally {
+      rpReplaceBtn.disabled = false; rpReverseBtn.disabled = false;
+    }
+  });
+
+  rpReverseBtn.addEventListener("click", async () => {
+    const repoUrl = (rpRepoEl.value || "").trim();
+    const branch = (rpBranchEl.value || "main").trim();
+    if (!/github\.com[/:][^/]+\/[^/]+/i.test(repoUrl)) { setRpStatus("Enter a valid GitHub repo URL.", "err"); return; }
+    if (!confirm("Restore the previous (backed-up) version of " + repoUrl + " (" + branch + ")?")) return;
+
+    rpReplaceBtn.disabled = true; rpReverseBtn.disabled = true;
+    setRpStatus("Restoring previous version…");
+    try {
+      const fd = new FormData();
+      fd.append("action", "restore");
+      fd.append("repo", repoUrl);
+      fd.append("branch", branch);
+      const res = await fetch("/github-replace.php", { method: "POST", body: fd });
+      const text = await res.text();
+      let data; try { data = JSON.parse(text); } catch (e) { throw new Error("Unexpected server response: " + text.slice(0, 120)); }
+      if (!res.ok || data.error) throw new Error(data.error || ("HTTP " + res.status));
+      rpStatusEl.className = "gh-status ok";
+      rpStatusEl.innerHTML = "Restored the previous version. <a class='gh-link' target='_blank' rel='noopener' href='" + data.commitUrl + "'>View commit →</a>";
+    } catch (err) {
+      setRpStatus("Reverse failed: " + (err.message || "unknown"), "err");
+    } finally {
+      rpReplaceBtn.disabled = false; rpReverseBtn.disabled = false;
     }
   });
 })();
