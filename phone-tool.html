@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HTML Phone Number Replacer</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+  :root {
+    --bg: #0f1117;
+    --panel: #181b24;
+    --panel-2: #1f2330;
+    --border: #2a2f3e;
+    --text: #e6e9ef;
+    --muted: #8b93a7;
+    --accent: #5b8cff;
+    --accent-2: #3a6dff;
+    --green: #2ecc71;
+    --red: #ff5c5c;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+  }
+  /* Top app header (matches the dashboard) */
+  .app-header {
+    display: flex; align-items: center; gap: 14px;
+    padding: 14px 22px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    position: sticky; top: 0; z-index: 10;
+  }
+  .app-header .logo {
+    width: 38px; height: 38px; border-radius: 10px;
+    background: linear-gradient(135deg, #5b8cff, #2ecc71);
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 800; color: #04130b; font-size: 18px;
+  }
+  .app-header .title { font-size: 17px; font-weight: 700; }
+  .app-header .title small { display: block; font-size: 11px; color: var(--muted); font-weight: 400; }
+  .app-header .nav { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+  .app-header .nav a {
+    text-decoration: none; color: var(--text);
+    border: 1px solid var(--border); background: var(--panel-2);
+    padding: 8px 14px; border-radius: 9px; font-size: 13px; font-weight: 600;
+    transition: border-color .15s, background .15s;
+  }
+  .app-header .nav a:hover { border-color: var(--accent); background: var(--bg); }
+  .app-header .nav a.active { background: linear-gradient(135deg,#5b8cff,#2ecc71); color: #04130b; border-color: transparent; }
+  .wrap { max-width: 900px; margin: 0 auto; padding: 32px 20px 80px; }
+  h1 { font-size: 24px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 28px; font-size: 14px; }
+
+  .drop {
+    border: 2px dashed var(--border);
+    border-radius: 14px;
+    padding: 44px 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color .15s, background .15s;
+    background: var(--panel);
+  }
+  .drop:hover, .drop.over { border-color: var(--accent); background: var(--panel-2); }
+  .drop strong { color: var(--accent); }
+  .drop p { margin: 8px 0 0; color: var(--muted); font-size: 13px; }
+  .drop .big { font-size: 16px; color: var(--text); }
+
+  .status { margin: 18px 0; font-size: 14px; color: var(--muted); min-height: 20px; }
+  .status.err { color: var(--red); }
+  .status.ok { color: var(--green); }
+
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px 18px;
+    margin-bottom: 14px;
+  }
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .num-orig {
+    font-family: "SF Mono", Menlo, monospace;
+    font-size: 15px;
+    font-weight: 600;
+    min-width: 180px;
+  }
+  .meta { color: var(--muted); font-size: 12px; }
+  .arrow { color: var(--muted); }
+  input[type=text] {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 8px 11px;
+    font-size: 14px;
+    font-family: "SF Mono", Menlo, monospace;
+    flex: 1;
+    min-width: 160px;
+  }
+  input[type=text]:focus { outline: none; border-color: var(--accent); }
+  input[type=text].changed { border-color: var(--green); }
+
+  .files-line { margin-top: 8px; font-size: 12px; color: var(--muted); word-break: break-all; }
+
+  button {
+    background: var(--accent-2);
+    color: #fff;
+    border: none;
+    border-radius: 9px;
+    padding: 11px 20px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background .15s, opacity .15s;
+  }
+  button:hover { background: var(--accent); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.ghost { background: transparent; border: 1px solid var(--border); color: var(--text); }
+  button.ghost:hover { border-color: var(--accent); background: var(--panel-2); }
+
+  .toolbar { display: flex; gap: 10px; margin: 22px 0 14px; flex-wrap: wrap; align-items: center; }
+  .toolbar .spacer { flex: 1; }
+  .count-pill {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 4px 12px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .hidden { display: none; }
+  .empty { color: var(--muted); text-align: center; padding: 30px; }
+  a.dl { text-decoration: none; }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 6px; }
+
+  .gh {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px;
+    margin-top: 22px;
+  }
+  .gh h2 { font-size: 15px; margin: 0 0 4px; }
+  .gh .sub2 { color: var(--muted); font-size: 12px; margin: 0 0 14px; }
+  .field { margin-bottom: 11px; }
+  .field label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .field input {
+    width: 100%;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 9px 11px;
+    font-size: 13px;
+    font-family: "SF Mono", Menlo, monospace;
+  }
+  .field input:focus { outline: none; border-color: var(--accent); }
+  .field-row { display: flex; gap: 11px; }
+  .field-row .field { flex: 1; }
+  .gh-status { font-size: 12px; margin-top: 10px; min-height: 16px; color: var(--muted); }
+  .gh-status.err { color: var(--red); }
+  .gh-status.ok { color: var(--green); }
+  .remember { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--muted); margin-bottom: 12px; }
+  .remember input { width: auto; }
+  .gh-link { color: var(--accent); }
+</style>
+</head>
+<body>
+<header class="app-header">
+  <div class="logo">M</div>
+  <div class="title">Website Command Center <small>Tools · Phone Number Replacer</small></div>
+  <nav class="nav">
+    <a href="/">← Dashboard</a>
+    <a href="/phone-tool.html" class="active">📞 Phone Tool</a>
+  </nav>
+</header>
+<div class="wrap">
+  <h1>HTML Phone Number Replacer</h1>
+  <p class="sub">Upload a ZIP of HTML files → review detected phone numbers → replace them → download the updated ZIP.</p>
+
+  <div class="drop" id="drop">
+    <div class="big">Drop your <strong>.zip</strong> here, or click to browse</div>
+    <p>All HTML files inside (any folder) will be scanned for phone numbers.</p>
+    <input type="file" id="file" accept=".zip" class="hidden">
+  </div>
+
+  <div class="status" id="status"></div>
+
+  <div id="results" class="hidden">
+    <div class="toolbar">
+      <span class="count-pill" id="pill"></span>
+      <div class="spacer"></div>
+      <button class="ghost" id="resetBtn">Reset all</button>
+      <button id="downloadBtn">Download updated ZIP</button>
+    </div>
+    <div id="list"></div>
+
+    <div class="gh">
+      <h2>Push to GitHub</h2>
+      <p class="sub2">Commits all files from the zip (with numbers replaced) directly to the branch, at the repo root.
+        Needs a token with <strong>Contents: Read &amp; Write</strong> on the repo.</p>
+      <div class="field">
+        <label>Repository URL</label>
+        <input type="text" id="ghRepo" placeholder="https://github.com/yourname/yourrepo" autocomplete="off">
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label>Branch</label>
+          <input type="text" id="ghBranch" placeholder="main" value="main" autocomplete="off">
+        </div>
+        <div class="field">
+          <label>Commit message</label>
+          <input type="text" id="ghMsg" placeholder="Update phone numbers" value="Update phone numbers" autocomplete="off">
+        </div>
+      </div>
+      <div class="field">
+        <label>Personal Access Token (sent only to api.github.com, never stored unless you check below)</label>
+        <input type="password" id="ghToken" placeholder="github_pat_… or ghp_…" autocomplete="off">
+      </div>
+      <label class="remember"><input type="checkbox" id="ghRemember"> Save token in this browser so I don't have to paste it again</label>
+      <div class="row" style="gap:10px;">
+        <button id="pushBtn">Push to GitHub</button>
+        <button class="ghost" id="ghClearBtn">Clear saved token</button>
+      </div>
+      <div class="gh-status" id="ghStatus"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  const dropEl = document.getElementById("drop");
+  const fileEl = document.getElementById("file");
+  const statusEl = document.getElementById("status");
+  const resultsEl = document.getElementById("results");
+  const listEl = document.getElementById("list");
+  const pillEl = document.getElementById("pill");
+  const downloadBtn = document.getElementById("downloadBtn");
+  const resetBtn = document.getElementById("resetBtn");
+  const ghRepoEl = document.getElementById("ghRepo");
+  const ghBranchEl = document.getElementById("ghBranch");
+  const ghMsgEl = document.getElementById("ghMsg");
+  const ghTokenEl = document.getElementById("ghToken");
+  const ghRememberEl = document.getElementById("ghRemember");
+  const pushBtn = document.getElementById("pushBtn");
+  const ghClearBtn = document.getElementById("ghClearBtn");
+  const ghStatusEl = document.getElementById("ghStatus");
+
+  const TOKEN_KEY = "phoneTool_ghToken";
+  const REPO_KEY = "phoneTool_ghRepo";
+  const BRANCH_KEY = "phoneTool_ghBranch";
+  const MSG_KEY = "phoneTool_ghMsg";
+
+  function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+  function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+  function lsDel(k) { try { localStorage.removeItem(k); } catch (e) {} }
+
+  // restore saved values
+  (function restore() {
+    const t = lsGet(TOKEN_KEY);
+    if (t) { ghTokenEl.value = t; ghRememberEl.checked = true; }
+    const r = lsGet(REPO_KEY); if (r) ghRepoEl.value = r;
+    const b = lsGet(BRANCH_KEY); if (b) ghBranchEl.value = b;
+    const m = lsGet(MSG_KEY); if (m) ghMsgEl.value = m;
+  })();
+
+  // remember repo/branch/message as you type (these aren't secrets)
+  ghRepoEl.addEventListener("input", () => lsSet(REPO_KEY, ghRepoEl.value));
+  ghBranchEl.addEventListener("input", () => lsSet(BRANCH_KEY, ghBranchEl.value));
+  ghMsgEl.addEventListener("input", () => lsSet(MSG_KEY, ghMsgEl.value));
+  // save token immediately when the box is ticked (or wipe it when unticked)
+  ghRememberEl.addEventListener("change", () => {
+    if (ghRememberEl.checked && ghTokenEl.value.trim()) lsSet(TOKEN_KEY, ghTokenEl.value.trim());
+    else lsDel(TOKEN_KEY);
+  });
+  ghTokenEl.addEventListener("input", () => {
+    if (ghRememberEl.checked) lsSet(TOKEN_KEY, ghTokenEl.value.trim());
+  });
+
+  ghClearBtn.addEventListener("click", () => {
+    lsDel(TOKEN_KEY);
+    ghTokenEl.value = "";
+    ghRememberEl.checked = false;
+    setGhStatus("Saved token cleared from this browser.", "ok");
+  });
+
+  let zipObj = null;          // loaded JSZip instance
+  let htmlFiles = [];         // [{path, content}]
+  let detections = [];        // [{original, normalizedKey, count, files:Set, replacement}]
+  let originalZipName = "updated.html-bundle";
+
+  // Phone regex: matches optional +country, then 7-15 digits with spaces/dashes/dots/parens.
+  // Requires at least 7 digits total to avoid matching random short numbers.
+  const PHONE_RE = /(?:(?:\+|00)\d{1,3}[\s.-]?)?(?:\(\d{2,4}\)[\s.-]?)?\d(?:[\d\s.-]{5,15}\d)/g;
+
+  function countDigits(s) { return (s.match(/\d/g) || []).length; }
+
+  function looksLikePhone(match) {
+    const digits = countDigits(match);
+    if (digits < 7 || digits > 15) return false;
+    // reject if it's part of a longer digit-run that looks like an id (e.g. >15 digits already filtered)
+    return true;
+  }
+
+  function setStatus(msg, cls) {
+    statusEl.textContent = msg || "";
+    statusEl.className = "status" + (cls ? " " + cls : "");
+  }
+
+  // --- drag & drop wiring ---
+  dropEl.addEventListener("click", () => fileEl.click());
+  fileEl.addEventListener("change", (e) => {
+    if (e.target.files && e.target.files[0]) handleFile(e.target.files[0]);
+  });
+  ["dragenter", "dragover"].forEach(ev =>
+    dropEl.addEventListener(ev, (e) => { e.preventDefault(); dropEl.classList.add("over"); }));
+  ["dragleave", "drop"].forEach(ev =>
+    dropEl.addEventListener(ev, (e) => { e.preventDefault(); dropEl.classList.remove("over"); }));
+  dropEl.addEventListener("drop", (e) => {
+    const f = e.dataTransfer.files && e.dataTransfer.files[0];
+    if (f) handleFile(f);
+  });
+
+  async function handleFile(file) {
+    if (!file.name.toLowerCase().endsWith(".zip")) {
+      setStatus("Please upload a .zip file.", "err");
+      return;
+    }
+    originalZipName = file.name.replace(/\.zip$/i, "");
+    setStatus("Reading ZIP…");
+    resultsEl.classList.add("hidden");
+
+    try {
+      zipObj = await JSZip.loadAsync(file);
+    } catch (err) {
+      setStatus("Could not read that ZIP file. Is it a valid archive?", "err");
+      return;
+    }
+
+    htmlFiles = [];
+    const tasks = [];
+    zipObj.forEach((path, entry) => {
+      if (entry.dir) return;
+      if (/\.(html?|htm)$/i.test(path)) {
+        tasks.push(entry.async("string").then(content => {
+          htmlFiles.push({ path, content });
+        }));
+      }
+    });
+    await Promise.all(tasks);
+
+    if (htmlFiles.length === 0) {
+      setStatus("No HTML files found inside that ZIP.", "err");
+      return;
+    }
+
+    scanForPhones();
+    renderResults();
+    setStatus("Found " + htmlFiles.length + " HTML file(s). Review the numbers below.", "ok");
+  }
+
+  function scanForPhones() {
+    const map = new Map(); // key: exact original string match -> detection
+    htmlFiles.forEach(f => {
+      PHONE_RE.lastIndex = 0;
+      let m;
+      while ((m = PHONE_RE.exec(f.content)) !== null) {
+        const raw = m[0].trim();
+        if (!looksLikePhone(raw)) continue;
+        if (!map.has(raw)) {
+          map.set(raw, { original: raw, count: 0, files: new Set(), replacement: "" });
+        }
+        const d = map.get(raw);
+        d.count++;
+        d.files.add(f.path);
+      }
+    });
+    detections = Array.from(map.values()).sort((a, b) => b.count - a.count);
+  }
+
+  function renderResults() {
+    listEl.innerHTML = "";
+    if (detections.length === 0) {
+      listEl.innerHTML = '<div class="empty">No phone numbers detected in the HTML files.</div>';
+      pillEl.textContent = "0 numbers";
+      downloadBtn.disabled = true;
+      resultsEl.classList.remove("hidden");
+      return;
+    }
+    downloadBtn.disabled = false;
+    pillEl.textContent = detections.length + " unique number" + (detections.length === 1 ? "" : "s");
+
+    detections.forEach((d, i) => {
+      const card = document.createElement("div");
+      card.className = "card";
+
+      const row = document.createElement("div");
+      row.className = "row";
+
+      const orig = document.createElement("span");
+      orig.className = "num-orig";
+      orig.textContent = d.original;
+
+      const meta = document.createElement("span");
+      meta.className = "meta";
+      meta.textContent = d.count + "×";
+
+      const arrow = document.createElement("span");
+      arrow.className = "arrow";
+      arrow.textContent = "→";
+
+      const input = document.createElement("input");
+      input.type = "text";
+      input.placeholder = "new number (leave blank to keep)";
+      input.value = d.replacement;
+      input.addEventListener("input", () => {
+        d.replacement = input.value;
+        input.classList.toggle("changed", input.value.trim() !== "" && input.value !== d.original);
+      });
+
+      row.appendChild(orig);
+      row.appendChild(meta);
+      row.appendChild(arrow);
+      row.appendChild(input);
+      card.appendChild(row);
+
+      const files = document.createElement("div");
+      files.className = "files-line";
+      files.textContent = "in: " + Array.from(d.files).join(", ");
+      card.appendChild(files);
+
+      listEl.appendChild(card);
+    });
+
+    resultsEl.classList.remove("hidden");
+  }
+
+  resetBtn.addEventListener("click", () => {
+    detections.forEach(d => d.replacement = "");
+    renderResults();
+  });
+
+  function escapeRegExp(s) {
+    return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+
+  function activeReplacements() {
+    return detections.filter(d => d.replacement.trim() !== "" && d.replacement !== d.original);
+  }
+
+  // Apply active replacements to the in-memory html file contents and into zipObj.
+  // Returns the list of html file paths that actually changed.
+  function applyReplacements(active) {
+    const changed = [];
+    htmlFiles.forEach(f => {
+      let content = f.content;
+      active.forEach(d => {
+        const re = new RegExp(escapeRegExp(d.original), "g");
+        content = content.replace(re, d.replacement.trim());
+      });
+      if (content !== f.content) {
+        f.content = content;
+        zipObj.file(f.path, content); // overwrite in place, preserves structure
+        changed.push(f.path);
+      }
+    });
+    return changed;
+  }
+
+  downloadBtn.addEventListener("click", async () => {
+    const active = activeReplacements();
+    if (active.length === 0) {
+      setStatus("No replacements entered — nothing to change.", "err");
+      return;
+    }
+    setStatus("Building updated ZIP…");
+    downloadBtn.disabled = true;
+    try {
+      applyReplacements(active);
+      const blob = await zipObj.generateAsync({ type: "blob", compression: "DEFLATE" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = originalZipName + "-updated.zip";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+      setStatus("Done — updated ZIP downloaded with " + active.length + " number(s) replaced.", "ok");
+    } catch (err) {
+      setStatus("Something went wrong building the ZIP: " + err.message, "err");
+    } finally {
+      downloadBtn.disabled = false;
+    }
+  });
+
+  // ---------- GitHub push ----------
+  function setGhStatus(msg, cls) {
+    ghStatusEl.textContent = msg || "";
+    ghStatusEl.className = "gh-status" + (cls ? " " + cls : "");
+  }
+
+  function parseRepo(url) {
+    const m = url.trim().match(/github\.com[/:]([^/]+)\/([^/]+?)(?:\.git)?(?:[/?#].*)?$/i);
+    if (!m) return null;
+    return { owner: m[1], repo: m[2] };
+  }
+
+  async function gh(token, path, method, body) {
+    const res = await fetch("https://api.github.com" + path, {
+      method: method || "GET",
+      headers: {
+        "Authorization": "Bearer " + token,
+        "Accept": "application/vnd.github+json",
+        "Content-Type": "application/json"
+      },
+      body: body ? JSON.stringify(body) : undefined
+    });
+    const text = await res.text();
+    let data = null;
+    try { data = text ? JSON.parse(text) : null; } catch (e) { data = text; }
+    if (!res.ok) {
+      const msg = (data && data.message) ? data.message : ("HTTP " + res.status);
+      throw new Error(msg);
+    }
+    return data;
+  }
+
+  pushBtn.addEventListener("click", async () => {
+    const repoUrl = ghRepoEl.value;
+    const branch = (ghBranchEl.value || "main").trim();
+    const token = ghTokenEl.value.trim();
+    const commitMsg = (ghMsgEl.value || "Update phone numbers").trim();
+
+    const repo = parseRepo(repoUrl);
+    if (!repo) { setGhStatus("Enter a valid GitHub repo URL (https://github.com/owner/repo).", "err"); return; }
+    if (!token) { setGhStatus("A Personal Access Token is required to push.", "err"); return; }
+
+    const active = activeReplacements();
+    if (active.length === 0) { setGhStatus("No replacements entered — nothing to push.", "err"); return; }
+
+    // persist token if requested
+    try {
+      if (ghRememberEl.checked) localStorage.setItem(TOKEN_KEY, token);
+      else localStorage.removeItem(TOKEN_KEY);
+    } catch (e) {}
+
+    pushBtn.disabled = true;
+    const base = "/repos/" + repo.owner + "/" + repo.repo;
+
+    try {
+      applyReplacements(active);
+
+      setGhStatus("Reading branch '" + branch + "'…");
+      const ref = await gh(token, base + "/git/ref/heads/" + encodeURIComponent(branch));
+      const latestCommitSha = ref.object.sha;
+      const latestCommit = await gh(token, base + "/git/commits/" + latestCommitSha);
+      const baseTreeSha = latestCommit.tree.sha;
+
+      // Collect all files from the zip (preserve structure, repo root).
+      const entries = [];
+      zipObj.forEach((path, entry) => { if (!entry.dir) entries.push({ path, entry }); });
+
+      setGhStatus("Uploading " + entries.length + " file(s)…");
+      const treeItems = [];
+      for (let i = 0; i < entries.length; i++) {
+        const { path, entry } = entries[i];
+        const b64 = await entry.async("base64");
+        const blob = await gh(token, base + "/git/blobs", "POST", { content: b64, encoding: "base64" });
+        treeItems.push({ path: path, mode: "100644", type: "blob", sha: blob.sha });
+        setGhStatus("Uploading file " + (i + 1) + " / " + entries.length + "…");
+      }
+
+      setGhStatus("Creating commit…");
+      const tree = await gh(token, base + "/git/trees", "POST", { base_tree: baseTreeSha, tree: treeItems });
+      const commit = await gh(token, base + "/git/commits", "POST", {
+        message: commitMsg, tree: tree.sha, parents: [latestCommitSha]
+      });
+      await gh(token, base + "/git/refs/heads/" + encodeURIComponent(branch), "PATCH", { sha: commit.sha });
+
+      const commitUrl = "https://github.com/" + repo.owner + "/" + repo.repo + "/commit/" + commit.sha;
+      setGhStatus("");
+      ghStatusEl.className = "gh-status ok";
+      ghStatusEl.innerHTML = "Pushed " + entries.length + " file(s) to " + repo.owner + "/" + repo.repo +
+        " (" + branch + "). <a class='gh-link' target='_blank' rel='noopener' href='" + commitUrl + "'>View commit →</a>";
+    } catch (err) {
+      let hint = err.message;
+      if (/Not Found/i.test(hint)) hint += " — check the repo URL, branch name, and that the token has access.";
+      if (/Bad credentials/i.test(hint)) hint += " — the token is invalid or expired.";
+      setGhStatus("Push failed: " + hint, "err");
+    } finally {
+      pushBtn.disabled = false;
+    }
+  });
+})();
+</script>
+</body>
+</html>
