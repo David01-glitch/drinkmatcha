@@ -2687,21 +2687,25 @@ async function loadRegionsView(force = false) {
       else if (used >= AMPLIFY_APPS_PER_REGION_QUOTA) { statusCell = '<span style="color:var(--danger);">⚠ FULL</span>'; sortRank = 2; }
       else { statusCell = `<span style="color:#fbbf24;">${used}/${AMPLIFY_APPS_PER_REGION_QUOTA} used</span>`; sortRank = 1; }
       return { r, used, notEnabled, statusCell, sortRank };
-    }).filter(x => !x.notEnabled) // only show enabled regions
-      .sort((a, b) => a.sortRank - b.sortRank || a.r.localeCompare(b.r));
+    }).filter(x => !x.notEnabled && x.used === 0) // only EMPTY, enabled regions
+      .sort((a, b) => a.r.localeCompare(b.r));
 
-    body.innerHTML = rows.map(x => `
-      <tr>
-        <td><strong>${escapeHtml(REGION_LABELS[x.r].replace(/^[\u{1F1E6}-\u{1F1FF}]{2}\s*/u, ''))}</strong></td>
-        <td><span style="font-family:monospace; font-size:12px; color:var(--muted);">${escapeHtml(x.r)}</span></td>
-        <td>${x.used}</td>
-        <td>${AMPLIFY_APPS_PER_REGION_QUOTA}</td>
-        <td style="text-align:right;">${x.statusCell}</td>
-      </tr>`).join('');
+    if (!rows.length) {
+      body.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--muted); padding:30px;">No empty regions — every enabled region already has an app. Delete one from ☁ Apps to free a region.</td></tr>`;
+    } else {
+      body.innerHTML = rows.map(x => `
+        <tr>
+          <td><strong>${escapeHtml(REGION_LABELS[x.r].replace(/^[\u{1F1E6}-\u{1F1FF}]{2}\s*/u, ''))}</strong></td>
+          <td><span style="font-family:monospace; font-size:12px; color:var(--muted);">${escapeHtml(x.r)}</span></td>
+          <td>0</td>
+          <td>${AMPLIFY_APPS_PER_REGION_QUOTA}</td>
+          <td style="text-align:right;">${x.statusCell}</td>
+        </tr>`).join('');
+    }
 
     status.style.color = 'var(--ok, #4ade80)';
-    status.textContent = `✓ ${emptyTotal} empty region(s) ready for deployment · ${rows.length} enabled regions total`;
-    document.getElementById('amplifyCount').textContent = `${emptyTotal} empty / ${rows.length} regions`;
+    status.textContent = `✓ ${rows.length} empty region(s) ready for deployment`;
+    document.getElementById('amplifyCount').textContent = `${rows.length} empty region(s)`;
   } catch (e) {
     status.style.color = 'var(--danger)';
     status.textContent = '⚠ ' + (e.message || 'Failed to load region capacity');
