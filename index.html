@@ -766,8 +766,7 @@
     <div class="modal-body">
       <!-- Tab switcher -->
       <div style="display:flex; gap:8px; margin-bottom:14px; border-bottom:1px solid var(--border, #2a2a3a); padding-bottom:8px;">
-        <button class="btn" id="tabAppsBtn" onclick="switchAmplifyTab('apps')" style="background:var(--accent, #4ade80); color:#000;">☁ Amplify Apps</button>
-        <button class="btn" id="tabHerokuBtn" onclick="switchAmplifyTab('heroku')">🟣 Heroku Apps</button>
+        <button class="btn" id="tabAppsBtn" onclick="switchAmplifyTab('apps')" style="background:var(--accent, #4ade80); color:#000;">☁ Apps</button>
         <button class="btn" id="tabActivityBtn" onclick="switchAmplifyTab('activity')">📋 Activity Log</button>
       </div>
 
@@ -789,28 +788,6 @@
             </thead>
             <tbody id="amplifyTableBody">
               <tr><td colspan="7" style="text-align:center; color:var(--muted); padding:30px;">No data yet — click ↻ Refresh.</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <!-- HEROKU TAB -->
-      <div id="amplifyTabHeroku" style="display:none;">
-        <div id="herokuManagerStatus" style="font-size:13px; color:var(--muted); margin-bottom:10px;">Click Refresh to load Heroku apps.</div>
-        <div style="overflow:auto; max-height: 60vh;">
-          <table class="tbl" style="width:100%;">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Region</th>
-                <th>URL</th>
-                <th>Stack</th>
-                <th>Created</th>
-                <th style="text-align:right;">Action</th>
-              </tr>
-            </thead>
-            <tbody id="herokuTableBody">
-              <tr><td colspan="6" style="text-align:center; color:var(--muted); padding:30px;">No data yet — click ↻ Refresh.</td></tr>
             </tbody>
           </table>
         </div>
@@ -2174,112 +2151,32 @@ function closeAmplifyManager() {
 }
 function switchAmplifyTab(which) {
   _amplifyTab = which;
-  const tabs = {
-    apps:     { panel: 'amplifyTabApps',     btn: 'tabAppsBtn' },
-    heroku:   { panel: 'amplifyTabHeroku',   btn: 'tabHerokuBtn' },
-    activity: { panel: 'amplifyTabActivity', btn: 'tabActivityBtn' },
-  };
-  for (const [key, t] of Object.entries(tabs)) {
-    const panel = document.getElementById(t.panel);
-    const btn = document.getElementById(t.btn);
-    const active = key === which;
-    if (panel) panel.style.display = active ? '' : 'none';
-    if (btn) {
-      btn.style.background = active ? 'var(--accent, #4ade80)' : '';
-      btn.style.color = active ? '#000' : '';
-    }
+  const apps = document.getElementById('amplifyTabApps');
+  const act = document.getElementById('amplifyTabActivity');
+  const appsBtn = document.getElementById('tabAppsBtn');
+  const actBtn = document.getElementById('tabActivityBtn');
+  if (which === 'apps') {
+    apps.style.display = '';
+    act.style.display = 'none';
+    appsBtn.style.background = 'var(--accent, #4ade80)';
+    appsBtn.style.color = '#000';
+    actBtn.style.background = '';
+    actBtn.style.color = '';
+    loadAmplifyApps();
+  } else {
+    apps.style.display = 'none';
+    act.style.display = '';
+    actBtn.style.background = 'var(--accent, #4ade80)';
+    actBtn.style.color = '#000';
+    appsBtn.style.background = '';
+    appsBtn.style.color = '';
+    loadAuditLog();
   }
-  if (which === 'apps') loadAmplifyApps();
-  else if (which === 'heroku') loadHerokuApps();
-  else if (which === 'activity') loadAuditLog();
 }
 // Called by ↻ Refresh — refreshes whichever tab is active (force-fresh)
 function loadAmplifyTab() {
   if (_amplifyTab === 'activity') loadAuditLog();
-  else if (_amplifyTab === 'heroku') loadHerokuApps();
   else loadAmplifyApps(true); // force bypass cache
-}
-
-async function loadHerokuApps() {
-  const status = document.getElementById('herokuManagerStatus');
-  const body = document.getElementById('herokuTableBody');
-  const btn = document.getElementById('amplifyReloadBtn');
-  btn.disabled = true; btn.textContent = '⏳ Loading…';
-  status.style.color = 'var(--muted)';
-  status.textContent = 'Loading Heroku apps…';
-  body.innerHTML = '<tr><td colspan="6" style="text-align:center; color:var(--muted); padding:30px;">Loading…</td></tr>';
-  try {
-    const res = await fetch('heroku.php', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'list' }),
-    });
-    const data = await res.json();
-    if (!res.ok || data.error) throw new Error(data.error || ('HTTP ' + res.status));
-    const apps = (data.apps || []).sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
-    if (!apps.length) {
-      body.innerHTML = '<tr><td colspan="6" style="text-align:center; color:var(--muted); padding:30px;">No Heroku apps found.</td></tr>';
-    } else {
-      body.innerHTML = apps.map(a => {
-        const regionLbl = a.region === 'eu' ? '🇪🇺 EU' : (a.region === 'us' ? '🇺🇸 US' : escapeHtml(a.region || '-'));
-        return `
-          <tr data-appid="${escapeAttr(a.name)}">
-            <td><strong>${escapeHtml(a.name || '-')}</strong></td>
-            <td>${regionLbl}</td>
-            <td>${a.webUrl ? `<a href="${escapeAttr(a.webUrl)}" target="_blank" rel="noopener">${escapeHtml(a.webUrl.replace('https://', ''))}</a>` : '-'}</td>
-            <td style="font-size:12px; color:var(--muted);">${escapeHtml(a.stack || '-')}</td>
-            <td style="font-size:12px; color:var(--muted);">${a.createdAt ? new Date(a.createdAt).toLocaleDateString() : '-'}</td>
-            <td style="text-align:right;"><button class="btn" style="background:var(--danger,#ef4444); color:#fff; padding:4px 10px; font-size:12px;" onclick="deleteHerokuAppFromList('${escapeAttr(a.name)}')">🗑 Delete</button></td>
-          </tr>`;
-      }).join('');
-    }
-    status.style.color = 'var(--ok, #4ade80)';
-    status.textContent = `✓ ${apps.length} Heroku app(s)`;
-    document.getElementById('amplifyCount').textContent = `${apps.length} Heroku app(s)`;
-  } catch (e) {
-    status.style.color = 'var(--danger)';
-    status.textContent = '⚠ ' + (e.message || 'Failed to load. Is HEROKU_API_KEY set in Railway?');
-    body.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--danger); padding:30px;">${escapeHtml(e.message || 'error')}</td></tr>`;
-  } finally {
-    btn.disabled = false; btn.textContent = '↻ Refresh';
-  }
-}
-
-async function deleteHerokuAppFromList(appName) {
-  if (!confirm(`Delete Heroku app "${appName}"?\n\nThis is permanent. The site goes offline immediately.`)) return;
-  const row = document.querySelector(`#herokuTableBody tr[data-appid="${appName}"]`);
-  if (row) row.style.opacity = '0.5';
-  try {
-    const res = await fetch('heroku.php', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'delete', appId: appName }),
-    });
-    const data = await res.json();
-    if (!res.ok || data.error) throw new Error(data.error || ('HTTP ' + res.status));
-    if (row) row.remove();
-
-    // Sync: clear any dashboard rows referencing this Heroku app name
-    const linked = records.filter(r => (r.appname || '').trim() === appName);
-    for (const r of linked) {
-      try {
-        await sbUpsert({ ...r, appname: '', website: '', status: 'Draft',
-          platform: r.platform === 'Heroku' ? 'Other' : r.platform,
-          updated: new Date().toISOString() });
-      } catch (e) { console.warn('clear linked row failed', e); }
-    }
-    if (linked.length) await load();
-    render && render();
-
-    logAuditEvent('delete', { appId: appName, appName, region: 'heroku', details: { platform: 'heroku', source: 'heroku-manager', linkedRowsCleared: linked.length } });
-
-    const status = document.getElementById('herokuManagerStatus');
-    status.style.color = 'var(--ok, #4ade80)';
-    status.textContent = `✓ Deleted ${appName}${linked.length ? ` · cleared ${linked.length} linked row(s)` : ''}`;
-    const remaining = document.querySelectorAll('#herokuTableBody tr[data-appid]').length;
-    document.getElementById('amplifyCount').textContent = `${remaining} Heroku app(s)`;
-  } catch (e) {
-    if (row) row.style.opacity = '1';
-    alert('Delete failed: ' + (e.message || 'unknown'));
-  }
 }
 
 async function loadAuditLog() {
