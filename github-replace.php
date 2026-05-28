@@ -68,10 +68,16 @@ function ghTry($method, $path, $body = null) { try { return gh($method, $path, $
 try {
   // ---------------- RESTORE ----------------
   if ($action === 'restore') {
-    $bref = ghTry('GET', "$base/git/ref/heads/" . rawurlencode($backupBranch));
-    if (!$bref) { http_response_code(400); echo json_encode(['error' => 'No backup found for this branch — nothing to restore.']); exit; }
-    $backupSha = $bref['object']['sha'];
-    $backupCommit = gh('GET', "$base/git/commits/$backupSha");
+    // If a specific snapshot SHA is given, restore THAT version's tree.
+    // Otherwise fall back to the latest _backup_<branch> branch.
+    $wantSha = trim($_POST['sha'] ?? '');
+    if ($wantSha) {
+      $backupCommit = gh('GET', "$base/git/commits/$wantSha");
+    } else {
+      $bref = ghTry('GET', "$base/git/ref/heads/" . rawurlencode($backupBranch));
+      if (!$bref) { http_response_code(400); echo json_encode(['error' => 'No backup found for this branch — nothing to restore.']); exit; }
+      $backupCommit = gh('GET', "$base/git/commits/" . $bref['object']['sha']);
+    }
     $backupTree = $backupCommit['tree']['sha'];
 
     $cur = gh('GET', "$base/git/ref/heads/" . rawurlencode($branch));
@@ -131,6 +137,9 @@ try {
   if ($cur) { $curSha = $cur['object']['sha']; }
   else { $isEmpty = true; }
 
+  // The pre-replace HEAD is this version's restore point (snapshot).
+  $backupSha = (!$isEmpty && $curSha) ? $curSha : null;
+
   // Back up current HEAD to the hidden backup branch (only if repo has content)
   $backedUp = false;
   if (!$isEmpty && $curSha) {
@@ -184,6 +193,7 @@ try {
     'commitUrl' => "https://github.com/$owner/$repo/commit/" . $res['commit']['sha'],
     'branch' => $branch,
     'backedUp' => $backedUp,
+    'backupSha' => $backupSha, // pre-replace HEAD = this restore point
   ]);
 } catch (Throwable $e) {
   http_response_code(500);
