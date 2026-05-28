@@ -2231,20 +2231,43 @@ let _githubFilter = 'all';
 function normalizeRepoUrl(u) {
   return (u || '').trim().toLowerCase().replace(/\.git$/, '').replace(/\/$/, '');
 }
-// Set of normalized repo URLs that have an Amplify app deployed
-function deployedRepoSet() {
-  const set = new Set();
+// Map of normalized repo URL -> deployment info { platform, website }.
+// A repo counts as "deployed" if it's live ANYWHERE — Amplify, Heroku,
+// Railway, Vercel, or manually tracked in a dashboard row.
+function deployedRepoInfo() {
+  const map = new Map();
+  // 1) Amplify apps (source of truth for Amplify deploys)
   const apps = (_regionUsageCache && _regionUsageCache.apps) || [];
   for (const a of apps) {
-    if (a.repository) set.add(normalizeRepoUrl(a.repository));
-  }
-  // Also count dashboard rows that have a github link + a hosting app id
-  for (const r of records) {
-    if ((r.github || '').trim() && (r.appname || '').trim()) {
-      set.add(normalizeRepoUrl(r.github));
+    if (a.repository) {
+      map.set(normalizeRepoUrl(a.repository), {
+        platform: 'AWS Amplify',
+        website: a.defaultDomain ? `https://main.${a.defaultDomain}` : null,
+      });
     }
   }
-  return set;
+  // 2) Dashboard rows — a repo is deployed if a row references its github
+  //    AND that row looks live (has a website URL, an app name, or status Live).
+  //    This catches ANY hosting platform, not just Amplify.
+  for (const r of records) {
+    const gh = (r.github || '').trim();
+    if (!gh) continue;
+    const isLive = !!(r.website || '').trim() || !!(r.appname || '').trim() || (r.status || '').toLowerCase() === 'live';
+    if (!isLive) continue;
+    const key = normalizeRepoUrl(gh);
+    // Don't overwrite a more specific Amplify entry unless this row adds a website
+    if (!map.has(key) || (r.website && !map.get(key).website)) {
+      map.set(key, {
+        platform: r.platform || 'Other',
+        website: (r.website || '').trim() || (map.get(key)?.website ?? null),
+      });
+    }
+  }
+  return map;
+}
+// Backward-compatible set of deployed repo URLs
+function deployedRepoSet() {
+  return new Set(deployedRepoInfo().keys());
 }
 async function loadGithubRepos(force = false) {
   const status = document.getElementById('githubStatus');
@@ -2296,9 +2319,12 @@ function renderGithubRepos() {
   const status = document.getElementById('githubStatus');
   const body = document.getElementById('githubTableBody');
   const repos = (_githubReposCache && _githubReposCache.repos) || [];
-  const deployed = deployedRepoSet();
+  const deployedMap = deployedRepoInfo();
 
-  const withStatus = repos.map(r => ({ ...r, isDeployed: deployed.has(normalizeRepoUrl(r.url)) }));
+  const withStatus = repos.map(r => {
+    const info = deployedMap.get(normalizeRepoUrl(r.url));
+    return { ...r, isDeployed: !!info, deployInfo: info || null };
+  });
   const deployedCount = withStatus.filter(r => r.isDeployed).length;
   const undeployedCount = withStatus.length - deployedCount;
 
@@ -2309,18 +2335,29 @@ function renderGithubRepos() {
   if (!list.length) {
     body.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--muted); padding:30px;">No repos in this filter.</td></tr>`;
   } else {
-    body.innerHTML = list.map(r => `
+    body.innerHTML = list.map(r => {
+      let statusCell;
+      if (r.isDeployed) {
+        const plat = r.deployInfo.platform || 'somewhere';
+        const site = r.deployInfo.website;
+        statusCell = `<span style="color:var(--ok,#4ade80);">✓ Deployed</span>
+          <div style="font-size:11px; color:var(--muted); margin-top:2px;">on <strong>${escapeHtml(plat)}</strong>${site ? ` · <a href="${escapeAttr(site)}" target="_blank" rel="noopener">live ↗</a>` : ''}</div>`;
+      } else {
+        statusCell = '<span style="color:var(--muted);">○ Not deployed</span>';
+      }
+      return `
       <tr>
         <td><strong>${escapeHtml(r.name)}</strong>${r.description ? `<div style="font-size:11px; color:var(--muted); margin-top:2px;">${escapeHtml((r.description||'').slice(0,60))}</div>` : ''}</td>
         <td style="font-size:12px;">${r.private ? '🔒 Private' : '🌐 Public'}</td>
         <td style="font-size:12px; color:var(--muted);">${r.updatedAt ? new Date(r.updatedAt).toLocaleDateString() : '-'}</td>
-        <td>${r.isDeployed ? '<span style="color:var(--ok,#4ade80);">✓ Deployed</span>' : '<span style="color:var(--muted);">○ Not deployed</span>'}</td>
+        <td>${statusCell}</td>
         <td style="text-align:right;">
           ${r.isDeployed
             ? `<a href="${escapeAttr(r.url)}" target="_blank" rel="noopener" class="btn" style="font-size:12px; padding:4px 10px;">View repo</a>`
             : `<button class="btn primary" style="font-size:12px; padding:4px 10px;" onclick="quickDeployRepo('${escapeAttr(r.url)}','${escapeAttr(r.defaultBranch||'main')}')">🚀 Deploy</button>`}
         </td>
-      </tr>`).join('');
+      </tr>`;
+    }).join('');
   }
   status.style.color = 'var(--ok, #4ade80)';
   status.textContent = `${withStatus.length} repos · ${deployedCount} deployed · ${undeployedCount} not deployed`;
