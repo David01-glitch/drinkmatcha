@@ -167,32 +167,46 @@ try {
     $isEmpty = false; // branch now exists — use PATCH below
   }
 
-  // Upload blobs
-  $treeItems = [];
-  foreach ($files as $f) {
-    $blob = gh('POST', "$base/git/blobs", ['content' => $f['b64'], 'encoding' => 'base64']);
-    $treeItems[] = ['path' => $f['path'], 'mode' => '100644', 'type' => 'blob', 'sha' => $blob['sha']];
+  // After bootstrapping a brand-new repo, GitHub's git backend needs a
+  // moment before the Git Data API works (else it 401s "Requires
+  // authentication"). The closure below is retried a few times on those
+  // transient errors. Blobs/trees/commits are idempotent, so retrying is safe.
+  $doGitPush = function () use ($base, $files, $baseTree, $replaceAll, $latestSha, $message, $branch, $isEmpty) {
+    $treeItems = [];
+    foreach ($files as $f) {
+      $blob = gh('POST', "$base/git/blobs", ['content' => $f['b64'], 'encoding' => 'base64']);
+      $treeItems[] = ['path' => $f['path'], 'mode' => '100644', 'type' => 'blob', 'sha' => $blob['sha']];
+    }
+    $treeBody = ['tree' => $treeItems];
+    if ($baseTree && !$replaceAll) $treeBody['base_tree'] = $baseTree;
+    $tree = gh('POST', "$base/git/trees", $treeBody);
+
+    $commitBody = ['message' => $message, 'tree' => $tree['sha']];
+    $commitBody['parents'] = $latestSha ? [$latestSha] : [];
+    $commit = gh('POST', "$base/git/commits", $commitBody);
+
+    if ($isEmpty) {
+      gh('POST', "$base/git/refs", ['ref' => 'refs/heads/' . $branch, 'sha' => $commit['sha']]);
+    } else {
+      gh('PATCH', "$base/git/refs/heads/" . rawurlencode($branch), ['sha' => $commit['sha']]);
+    }
+    return ['commit' => $commit, 'count' => count($treeItems)];
+  };
+
+  $attempt = 0; $result = null; $lastErr = null;
+  while ($attempt < 4) {
+    try { $result = $doGitPush(); break; }
+    catch (Throwable $e) {
+      $lastErr = $e;
+      $m = $e->getMessage();
+      $transient = stripos($m, 'authentication') !== false || stripos($m, 'empty') !== false || stripos($m, '409') !== false || stripos($m, '401') !== false;
+      if (!$transient || $attempt === 3) throw $e;
+      sleep(2 + $attempt); // 2s, 3s, 4s backoff while the repo backend warms up
+      $attempt++;
+    }
   }
-
-  // Build the tree.
-  //  - replaceAll: omit base_tree -> repo ends up with ONLY the zip's files
-  //    (everything previously in the repo is removed)
-  //  - otherwise: overlay on existing tree (replace matching paths, keep rest)
-  $treeBody = ['tree' => $treeItems];
-  if ($baseTree && !$replaceAll) $treeBody['base_tree'] = $baseTree;
-  $tree = gh('POST', "$base/git/trees", $treeBody);
-
-  // Commit (with parent if branch existed, none for the first commit)
-  $commitBody = ['message' => $message, 'tree' => $tree['sha']];
-  $commitBody['parents'] = $latestSha ? [$latestSha] : [];
-  $commit = gh('POST', "$base/git/commits", $commitBody);
-
-  // Move the branch: PATCH if it exists, CREATE if it's new/empty
-  if ($isEmpty) {
-    gh('POST', "$base/git/refs", ['ref' => 'refs/heads/' . $branch, 'sha' => $commit['sha']]);
-  } else {
-    gh('PATCH', "$base/git/refs/heads/" . rawurlencode($branch), ['sha' => $commit['sha']]);
-  }
+  $commit = $result['commit'];
+  $treeItems = array_fill(0, $result['count'], 1); // for count in response
 
   echo json_encode([
     'ok' => true,
