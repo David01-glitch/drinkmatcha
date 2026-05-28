@@ -604,20 +604,19 @@
     } else {
       const msg = document.createElement("div");
       msg.style.cssText = "color:var(--red); font-size:13px; margin-bottom:8px;";
-      msg.textContent = "⚠ No Google tag found. Enter one below to add it to the <head> of every HTML page:";
+      msg.innerHTML = "⚠ No Google tag found. Paste your <strong>full tag snippet</strong> (the whole &lt;script&gt;…&lt;/script&gt; block) — or just the ID (G-XXXX / GTM-XXXX). It'll be inserted into the &lt;head&gt; of every HTML page:";
       wrap.appendChild(msg);
-      const row = document.createElement("div"); row.className = "row";
-      const input = document.createElement("input");
-      input.type = "text";
-      input.placeholder = "G-XXXXXXX  /  GTM-XXXXXX  /  UA-XXXX-X";
-      input.value = googleTagToAdd;
-      input.addEventListener("input", () => {
-        googleTagToAdd = input.value.trim();
-        input.classList.toggle("changed", googleTagToAdd !== "");
+      const ta = document.createElement("textarea");
+      ta.rows = 6;
+      ta.placeholder = "<!-- Google tag (gtag.js) -->\n<script async src=\"https://www.googletagmanager.com/gtag/js?id=G-XXXXXXX\"></script>\n<script>\n  window.dataLayer = window.dataLayer || [];\n  function gtag(){dataLayer.push(arguments);}\n  gtag('js', new Date());\n  gtag('config', 'G-XXXXXXX');\n</script>\n\n…or just:  G-XXXXXXX";
+      ta.style.cssText = "width:100%; background:var(--panel-2); border:1px solid var(--border); color:var(--text); border-radius:8px; padding:9px 11px; font-size:12px; font-family:'SF Mono',Menlo,monospace; resize:vertical;";
+      ta.value = googleTagToAdd;
+      ta.addEventListener("input", () => {
+        googleTagToAdd = ta.value;
+        ta.classList.toggle("changed", googleTagToAdd.trim() !== "");
         downloadBtn.disabled = !hasAnyChanges();
       });
-      row.appendChild(input);
-      wrap.appendChild(row);
+      wrap.appendChild(ta);
     }
     listEl.appendChild(wrap);
   }
@@ -652,8 +651,24 @@
   function applyAllChanges() {
     const phones = activeReplacements();
     const tagSwaps = activeGoogleTagReplacements();
-    const addTag = (googleTags.length === 0 && googleTagToAdd.trim() !== "") ? googleTagToAdd.trim() : "";
+    const rawAdd = (googleTags.length === 0) ? googleTagToAdd.trim() : "";
     const isHtml = p => /\.(html?|htm)$/i.test(p);
+
+    // Decide what to insert:
+    //  - if the pasted text contains a <script>, insert it VERBATIM
+    //  - else treat it as a bare ID and build the standard snippet
+    let headInsert = "", bodyInsert = "", addId = "";
+    if (rawAdd) {
+      const idm = rawAdd.match(/\b(G-[A-Z0-9]{6,}|GTM-[A-Z0-9]{4,}|UA-\d{4,}-\d{1,4})\b/i);
+      addId = idm ? idm[1] : "";
+      if (/<script|<!--/i.test(rawAdd)) {
+        headInsert = "\n" + rawAdd + "\n";            // user's exact snippet
+      } else if (addId) {
+        headInsert = "\n" + gtagHeadSnippet(addId);   // build from bare ID
+        if (/^GTM-/i.test(addId)) bodyInsert = "\n" + gtmBodyNoscript(addId);
+      }
+    }
+    const dedupeKey = addId || (rawAdd ? rawAdd.slice(0, 40) : "");
     const changed = [];
 
     htmlFiles.forEach(f => {
@@ -662,13 +677,11 @@
       phones.forEach(d => { content = content.replace(new RegExp(escapeRegExp(d.original), "g"), d.replacement.trim()); });
       // existing google tag ID swaps
       tagSwaps.forEach(t => { content = content.replace(new RegExp(escapeRegExp(t.id), "g"), t.replacement.trim()); });
-      // insert a new google tag into <head> (and <body> noscript for GTM) if none existed
-      if (addTag && isHtml(f.path) && !content.includes(addTag)) {
-        if (/<head[^>]*>/i.test(content)) {
-          content = content.replace(/<head[^>]*>/i, m => m + "\n" + gtagHeadSnippet(addTag));
-          if (/^GTM-/i.test(addTag) && /<body[^>]*>/i.test(content)) {
-            content = content.replace(/<body[^>]*>/i, m => m + "\n" + gtmBodyNoscript(addTag));
-          }
+      // insert the new google tag into <head> if this page doesn't already have it
+      if (headInsert && isHtml(f.path) && !(dedupeKey && content.includes(dedupeKey)) && /<head[^>]*>/i.test(content)) {
+        content = content.replace(/<head[^>]*>/i, m => m + headInsert);
+        if (bodyInsert && /<body[^>]*>/i.test(content)) {
+          content = content.replace(/<body[^>]*>/i, m => m + bodyInsert);
         }
       }
       if (content !== f.content) {
