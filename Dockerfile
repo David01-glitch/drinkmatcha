@@ -18,4 +18,4 @@ COPY . /app
 ENV PORT=8080
 EXPOSE 8080
 
-CMD ["sh", "-c", "php -S 0.0.0.0:${PORT} -t /app"]
+CMD ["sh", "-c", "php -d post_max_size=128M -d upload_max_filesize=128M -d memory_limit=512M -d max_execution_time=300 -S 0.0.0.0:${PORT} -t /app"]

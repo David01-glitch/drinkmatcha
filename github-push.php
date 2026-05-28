@@ -5,6 +5,17 @@
 // POST JSON: { repo, branch?, message?, files: [ {path, contentBase64}, ... ] }
 // Returns:  { ok, commitUrl, fileCount }
 
+// Never leak HTML errors — always respond JSON
+ini_set('display_errors', '0');
+error_reporting(E_ALL);
+register_shutdown_function(function () {
+  $e = error_get_last();
+  if ($e && in_array($e['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR], true)) {
+    if (!headers_sent()) { http_response_code(500); header('Content-Type: application/json'); }
+    echo json_encode(['error' => 'Server error: ' . $e['message']]);
+  }
+});
+
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: POST, OPTIONS');
