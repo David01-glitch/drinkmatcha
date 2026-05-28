@@ -221,14 +221,11 @@
           <input type="text" id="ghMsg" placeholder="Update phone numbers" value="Update phone numbers" autocomplete="off">
         </div>
       </div>
-      <div class="field">
-        <label>Personal Access Token (sent only to api.github.com, never stored unless you check below)</label>
-        <input type="password" id="ghToken" placeholder="github_pat_… or ghp_…" autocomplete="off">
+      <div class="field" style="font-size:12px; color:var(--muted);">
+        🔑 Uses the dashboard's GitHub token automatically — no token needed.
       </div>
-      <label class="remember"><input type="checkbox" id="ghRemember"> Save token in this browser so I don't have to paste it again</label>
       <div class="row" style="gap:10px;">
         <button id="pushBtn">Push to GitHub</button>
-        <button class="ghost" id="ghClearBtn">Clear saved token</button>
       </div>
       <div class="gh-status" id="ghStatus"></div>
     </div>
@@ -250,49 +247,26 @@
   const ghRepoEl = document.getElementById("ghRepo");
   const ghBranchEl = document.getElementById("ghBranch");
   const ghMsgEl = document.getElementById("ghMsg");
-  const ghTokenEl = document.getElementById("ghToken");
-  const ghRememberEl = document.getElementById("ghRemember");
   const pushBtn = document.getElementById("pushBtn");
-  const ghClearBtn = document.getElementById("ghClearBtn");
   const ghStatusEl = document.getElementById("ghStatus");
 
-  const TOKEN_KEY = "phoneTool_ghToken";
   const REPO_KEY = "phoneTool_ghRepo";
   const BRANCH_KEY = "phoneTool_ghBranch";
   const MSG_KEY = "phoneTool_ghMsg";
 
   function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
   function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
-  function lsDel(k) { try { localStorage.removeItem(k); } catch (e) {} }
 
-  // restore saved values
+  // restore saved values (repo/branch/message only — token is server-side now)
   (function restore() {
-    const t = lsGet(TOKEN_KEY);
-    if (t) { ghTokenEl.value = t; ghRememberEl.checked = true; }
     const r = lsGet(REPO_KEY); if (r) ghRepoEl.value = r;
     const b = lsGet(BRANCH_KEY); if (b) ghBranchEl.value = b;
     const m = lsGet(MSG_KEY); if (m) ghMsgEl.value = m;
   })();
 
-  // remember repo/branch/message as you type (these aren't secrets)
   ghRepoEl.addEventListener("input", () => lsSet(REPO_KEY, ghRepoEl.value));
   ghBranchEl.addEventListener("input", () => lsSet(BRANCH_KEY, ghBranchEl.value));
   ghMsgEl.addEventListener("input", () => lsSet(MSG_KEY, ghMsgEl.value));
-  // save token immediately when the box is ticked (or wipe it when unticked)
-  ghRememberEl.addEventListener("change", () => {
-    if (ghRememberEl.checked && ghTokenEl.value.trim()) lsSet(TOKEN_KEY, ghTokenEl.value.trim());
-    else lsDel(TOKEN_KEY);
-  });
-  ghTokenEl.addEventListener("input", () => {
-    if (ghRememberEl.checked) lsSet(TOKEN_KEY, ghTokenEl.value.trim());
-  });
-
-  ghClearBtn.addEventListener("click", () => {
-    lsDel(TOKEN_KEY);
-    ghTokenEl.value = "";
-    ghRememberEl.checked = false;
-    setGhStatus("Saved token cleared from this browser.", "ok");
-  });
 
   let zipObj = null;          // loaded JSZip instance
   let htmlFiles = [];         // [{path, content}]
@@ -510,93 +484,49 @@
     ghStatusEl.className = "gh-status" + (cls ? " " + cls : "");
   }
 
-  function parseRepo(url) {
-    const m = url.trim().match(/github\.com[/:]([^/]+)\/([^/]+?)(?:\.git)?(?:[/?#].*)?$/i);
-    if (!m) return null;
-    return { owner: m[1], repo: m[2] };
-  }
-
-  async function gh(token, path, method, body) {
-    const res = await fetch("https://api.github.com" + path, {
-      method: method || "GET",
-      headers: {
-        "Authorization": "Bearer " + token,
-        "Accept": "application/vnd.github+json",
-        "Content-Type": "application/json"
-      },
-      body: body ? JSON.stringify(body) : undefined
-    });
-    const text = await res.text();
-    let data = null;
-    try { data = text ? JSON.parse(text) : null; } catch (e) { data = text; }
-    if (!res.ok) {
-      const msg = (data && data.message) ? data.message : ("HTTP " + res.status);
-      throw new Error(msg);
-    }
-    return data;
-  }
-
   pushBtn.addEventListener("click", async () => {
-    const repoUrl = ghRepoEl.value;
+    const repoUrl = (ghRepoEl.value || "").trim();
     const branch = (ghBranchEl.value || "main").trim();
-    const token = ghTokenEl.value.trim();
     const commitMsg = (ghMsgEl.value || "Update phone numbers").trim();
 
-    const repo = parseRepo(repoUrl);
-    if (!repo) { setGhStatus("Enter a valid GitHub repo URL (https://github.com/owner/repo).", "err"); return; }
-    if (!token) { setGhStatus("A Personal Access Token is required to push.", "err"); return; }
-
+    if (!/github\.com[/:][^/]+\/[^/]+/i.test(repoUrl)) {
+      setGhStatus("Enter a valid GitHub repo URL (https://github.com/owner/repo).", "err"); return;
+    }
     const active = activeReplacements();
     if (active.length === 0) { setGhStatus("No replacements entered — nothing to push.", "err"); return; }
 
-    // persist token if requested
-    try {
-      if (ghRememberEl.checked) localStorage.setItem(TOKEN_KEY, token);
-      else localStorage.removeItem(TOKEN_KEY);
-    } catch (e) {}
-
     pushBtn.disabled = true;
-    const base = "/repos/" + repo.owner + "/" + repo.repo;
-
     try {
       applyReplacements(active);
 
-      setGhStatus("Reading branch '" + branch + "'…");
-      const ref = await gh(token, base + "/git/ref/heads/" + encodeURIComponent(branch));
-      const latestCommitSha = ref.object.sha;
-      const latestCommit = await gh(token, base + "/git/commits/" + latestCommitSha);
-      const baseTreeSha = latestCommit.tree.sha;
-
-      // Collect all files from the zip (preserve structure, repo root).
+      // Collect every file from the zip as base64 (preserve structure)
+      setGhStatus("Packaging files…");
       const entries = [];
       zipObj.forEach((path, entry) => { if (!entry.dir) entries.push({ path, entry }); });
-
-      setGhStatus("Uploading " + entries.length + " file(s)…");
-      const treeItems = [];
+      const files = [];
       for (let i = 0; i < entries.length; i++) {
-        const { path, entry } = entries[i];
-        const b64 = await entry.async("base64");
-        const blob = await gh(token, base + "/git/blobs", "POST", { content: b64, encoding: "base64" });
-        treeItems.push({ path: path, mode: "100644", type: "blob", sha: blob.sha });
-        setGhStatus("Uploading file " + (i + 1) + " / " + entries.length + "…");
+        const b64 = await entries[i].entry.async("base64");
+        files.push({ path: entries[i].path, contentBase64: b64 });
+        setGhStatus("Packaging file " + (i + 1) + " / " + entries.length + "…");
       }
 
-      setGhStatus("Creating commit…");
-      const tree = await gh(token, base + "/git/trees", "POST", { base_tree: baseTreeSha, tree: treeItems });
-      const commit = await gh(token, base + "/git/commits", "POST", {
-        message: commitMsg, tree: tree.sha, parents: [latestCommitSha]
+      // Send to the server — it pushes using the dashboard's GITHUB_TOKEN
+      setGhStatus("Pushing " + files.length + " file(s) via server…");
+      const res = await fetch("/github-push.php", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ repo: repoUrl, branch, message: commitMsg, files })
       });
-      await gh(token, base + "/git/refs/heads/" + encodeURIComponent(branch), "PATCH", { sha: commit.sha });
+      const data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error || ("HTTP " + res.status));
 
-      const commitUrl = "https://github.com/" + repo.owner + "/" + repo.repo + "/commit/" + commit.sha;
-      setGhStatus("");
       ghStatusEl.className = "gh-status ok";
-      ghStatusEl.innerHTML = "Pushed " + entries.length + " file(s) to " + repo.owner + "/" + repo.repo +
-        " (" + branch + "). <a class='gh-link' target='_blank' rel='noopener' href='" + commitUrl + "'>View commit →</a>";
+      ghStatusEl.innerHTML = "Pushed " + data.fileCount + " file(s) to " + branch +
+        ". <a class='gh-link' target='_blank' rel='noopener' href='" + data.commitUrl + "'>View commit →</a>";
     } catch (err) {
-      let hint = err.message;
-      if (/Not Found/i.test(hint)) hint += " — check the repo URL, branch name, and that the token has access.";
-      if (/Bad credentials/i.test(hint)) hint += " — the token is invalid or expired.";
+      let hint = err.message || "unknown error";
+      if (/Not Found/i.test(hint)) hint += " — check the repo URL + branch, and that the server token has access.";
+      if (/Bad credentials/i.test(hint)) hint += " — the server token is invalid or expired.";
       setGhStatus("Push failed: " + hint, "err");
     } finally {
       pushBtn.disabled = false;
