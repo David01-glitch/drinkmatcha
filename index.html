@@ -129,6 +129,25 @@
   @keyframes pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(123,211,137,.4);} 50% { box-shadow: 0 0 0 6px rgba(123,211,137,0);} }
 
   .header-actions { display: flex; gap: 8px; align-items: center; }
+  .profile-menu { position: relative; display: inline-block; }
+  .profile-dropdown {
+    position: absolute; right: 0; top: calc(100% + 6px);
+    background: var(--panel, #181b24);
+    border: 1px solid var(--border-strong, #2a2f3e);
+    border-radius: 12px;
+    box-shadow: 0 16px 40px rgba(0,0,0,0.55);
+    padding: 6px; min-width: 180px; z-index: 50;
+    display: none; flex-direction: column; gap: 2px;
+  }
+  .profile-dropdown.open { display: flex; }
+  .pm-item {
+    background: transparent; border: none; color: var(--text);
+    text-align: left; padding: 9px 12px; border-radius: 8px;
+    font-size: 13px; font-weight: 600; cursor: pointer; width: 100%;
+    transition: background .12s;
+  }
+  .pm-item:hover { background: var(--panel-2, #1f2330); }
+  .pm-sep { height: 1px; background: var(--border, #2a2f3e); margin: 4px 6px; }
   button.btn {
     background: rgba(29,35,53,0.6);
     color: var(--text);
@@ -684,14 +703,20 @@
     <div class="header-actions">
       <button class="btn notif-btn" id="notifBtn" onclick="toggleNotifications()" title="Enable browser notifications">🔔</button>
       <button class="btn" onclick="manualRefresh()" title="Pull latest from cloud">↻ Refresh</button>
-      <button class="btn" onclick="exportData()">Export</button>
-      <button class="btn" onclick="document.getElementById('importFile').click()">Import</button>
-      <input type="file" id="importFile" accept=".json" style="display:none" onchange="importData(event)"/>
-      <button class="btn" onclick="openSettings()">⚙ Settings</button>
       <button class="btn" onclick="openAmplifyManager()" title="Manage AWS Amplify apps across all regions">☁ Amplify Apps</button>
       <button class="btn" onclick="openGithubManager()" title="Browse GitHub repos — deployed vs not deployed">🐙 GitHub</button>
-      <button class="btn" onclick="openHistory()" title="Full change history — deploys, deletes, archives, edits">📜 History</button>
-      <a class="btn" href="/phone-tool.html" title="Bulk-replace phone numbers in HTML zips" style="text-decoration:none; display:inline-flex; align-items:center;">📞 Phone Tool</a>
+      <a class="btn" href="/phone-tool.html" title="HTML tool — bulk-replace phone numbers in HTML/zip files" style="text-decoration:none; display:inline-flex; align-items:center;">🛠 HTML Tool</a>
+      <input type="file" id="importFile" accept=".json" style="display:none" onchange="importData(event)"/>
+      <div class="profile-menu">
+        <button class="btn" id="profileBtn" onclick="toggleProfileMenu(event)" title="More">☰ Menu ▾</button>
+        <div class="profile-dropdown" id="profileDropdown">
+          <button class="pm-item" onclick="openSettings(); closeProfileMenu()">⚙ Settings</button>
+          <button class="pm-item" onclick="openHistory(); closeProfileMenu()">📜 History</button>
+          <div class="pm-sep"></div>
+          <button class="pm-item" onclick="exportData(); closeProfileMenu()">⬇ Export</button>
+          <button class="pm-item" onclick="document.getElementById('importFile').click(); closeProfileMenu()">⬆ Import</button>
+        </div>
+      </div>
       <button class="btn primary" onclick="openModal()">+ New Website</button>
       <button class="btn ghost" onclick="logout()">Logout</button>
     </div>
@@ -1282,6 +1307,19 @@ function extractTrackingId(raw) {
   const m = raw.match(/(GTM-[A-Z0-9]{4,}|G-[A-Z0-9]{6,}|UA-[0-9]{4,}-[0-9]+)/i);
   return m ? m[1].toUpperCase() : '';
 }
+function toggleProfileMenu(e) {
+  if (e) e.stopPropagation();
+  document.getElementById('profileDropdown').classList.toggle('open');
+}
+function closeProfileMenu() {
+  document.getElementById('profileDropdown').classList.remove('open');
+}
+// Close the profile menu when clicking anywhere else
+document.addEventListener('click', (e) => {
+  const menu = document.querySelector('.profile-menu');
+  if (menu && !menu.contains(e.target)) closeProfileMenu();
+});
+
 function openSettings() {
   document.getElementById('s_gtm').value = settings.gtmId || '';
   document.getElementById('s_author').value = settings.author || '';
