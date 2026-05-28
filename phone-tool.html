@@ -636,20 +636,35 @@
     return detections.filter(d => d.replacement.trim() !== "" && d.replacement !== d.original);
   }
 
+  // Drop only ORPHAN </script> closers (no matching opener) — leaves valid
+  // balanced scripts (incl. the page's own) untouched. Cleans up the dangling
+  // closers left behind when a broken tag has a fake </script> inside a string.
+  function removeOrphanScriptCloses(s) {
+    const re = /<script\b[^>]*>|<\/script\s*>/gi;
+    let out = "", last = 0, depth = 0, mm;
+    while ((mm = re.exec(s)) !== null) {
+      if (/^<\/script/i.test(mm[0])) {
+        if (depth === 0) { out += s.slice(last, mm.index); last = re.lastIndex; }
+        else depth--;
+      } else depth++;
+    }
+    return out + s.slice(last);
+  }
+
   // Remove any existing Google tag markup (clean OR broken) from an HTML string.
   function stripGoogleTags(html) {
     let s = html;
-    s = s.replace(/<!--\s*end\s+google\s+tag\s+manager[\s\S]*?-->/gi, "");
-    s = s.replace(/<!--\s*google\s+tag\s+manager[\s\S]*?-->/gi, "");
-    s = s.replace(/<!--\s*google\s+tag[\s\S]*?-->/gi, "");
-    s = s.replace(/<!--\s*end\s+google\s+tag[\s\S]*?-->/gi, "");
-    // gtag.js / GTM loader scripts (reference googletagmanager.com)
-    s = s.replace(/<script\b[^>]*googletagmanager\.com[\s\S]*?<\/script\s*>/gi, "");
-    // inline scripts that configure gtag / dataLayer / gtm.start
-    s = s.replace(/<script\b(?![^>]*\bsrc\s*=)[^>]*>[\s\S]*?(?:gtag\s*\(|dataLayer|gtm\.start)[\s\S]*?<\/script\s*>/gi, "");
-    // GTM noscript iframe
+    // tag comments
+    s = s.replace(/<!--\s*(?:end\s+)?google\s+tag(?:\s+manager)?[\s\S]*?-->/gi, "");
+    // GTM noscript iframe (usually in body) — safe, only matches GTM
     s = s.replace(/<noscript>[\s\S]*?googletagmanager\.com\/ns\.html[\s\S]*?<\/noscript\s*>/gi, "");
-    // tidy up leftover blank lines
+    // gtag.js / GTM loader scripts (reference googletagmanager.com) — lazy
+    s = s.replace(/<script\b[^>]*googletagmanager\.com[\s\S]*?<\/script\s*>/gi, "");
+    // inline scripts that configure gtag / dataLayer / gtm.start — lazy
+    s = s.replace(/<script\b(?![^>]*\bsrc\s*=)[^>]*>[\s\S]*?(?:gtag\s*\(|dataLayer|gtm\.start)[\s\S]*?<\/script\s*>/gi, "");
+    // a broken tag with a fake </script> inside leaves an orphan closer + junk:
+    s = removeOrphanScriptCloses(s);
+    s = s.replace(/^\s*'?\)\s*;?\s*$/gm, ""); // leftover  ');  lines
     s = s.replace(/\n{3,}/g, "\n\n");
     return s;
   }
