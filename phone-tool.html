@@ -563,7 +563,15 @@
     resultsEl.classList.remove("hidden");
   }
 
-  // Build the Google Tag UI (replace existing IDs, or add one if none found)
+  // Pull a clean Measurement ID out of anything the user enters (bare ID or a
+  // whole pasted snippet, even a broken/uppercase one).
+  function extractTagId(text) {
+    const m = (text || "").match(/\b(G-[A-Z0-9]{6,}|GTM-[A-Z0-9]{4,}|UA-\d{4,}-\d{1,4})\b/i);
+    return m ? m[1] : "";
+  }
+
+  // Build the Google Tag UI. One ID field that ALWAYS produces a clean tag:
+  // it strips any existing (even broken) tag markup and inserts a fresh snippet.
   function renderGoogleTagSection() {
     const wrap = document.createElement("div");
     wrap.className = "card";
@@ -573,51 +581,37 @@
     h.textContent = "🏷️ Google Tag";
     wrap.appendChild(h);
 
+    const info = document.createElement("div");
+    info.style.cssText = "font-size:13px; margin-bottom:8px;";
     if (googleTags.length) {
-      googleTags.forEach(t => {
-        const row = document.createElement("div");
-        row.className = "row";
-        row.style.marginBottom = "6px";
-        const orig = document.createElement("span");
-        orig.className = "num-orig";
-        orig.textContent = t.id;
-        const meta = document.createElement("span");
-        meta.className = "meta";
-        meta.textContent = t.count + "× in " + Array.from(t.files).length + " file(s)";
-        const arrow = document.createElement("span"); arrow.className = "arrow"; arrow.textContent = "→";
-        const input = document.createElement("input");
-        input.type = "text";
-        input.placeholder = "new tag ID (leave blank to keep)";
-        input.value = t.replacement;
-        input.addEventListener("input", () => {
-          t.replacement = input.value;
-          input.classList.toggle("changed", input.value.trim() !== "" && input.value !== t.id);
-          downloadBtn.disabled = !hasAnyChanges();
-        });
-        row.appendChild(orig); row.appendChild(meta); row.appendChild(arrow); row.appendChild(input);
-        wrap.appendChild(row);
-      });
-      const note = document.createElement("div");
-      note.className = "files-line";
-      note.textContent = "Found in: " + Array.from(new Set(googleTags.flatMap(t => Array.from(t.files)))).join(", ");
-      wrap.appendChild(note);
+      info.innerHTML = "Detected: <strong>" + googleTags.map(t => esc(t.id)).join(", ") +
+        "</strong> <span style='color:var(--muted)'>(if it looks broken, just set the ID below — it'll be cleaned & reinstalled)</span>";
     } else {
-      const msg = document.createElement("div");
-      msg.style.cssText = "color:var(--red); font-size:13px; margin-bottom:8px;";
-      msg.innerHTML = "⚠ No Google tag found. Paste your <strong>full tag snippet</strong> (the whole &lt;script&gt;…&lt;/script&gt; block) — or just the ID (G-XXXX / GTM-XXXX). It'll be inserted into the &lt;head&gt; of every HTML page:";
-      wrap.appendChild(msg);
-      const ta = document.createElement("textarea");
-      ta.rows = 6;
-      ta.placeholder = "<!-- Google tag (gtag.js) -->\n<script async src=\"https://www.googletagmanager.com/gtag/js?id=G-XXXXXXX\"><\/script>\n<script>\n  window.dataLayer = window.dataLayer || [];\n  function gtag(){dataLayer.push(arguments);}\n  gtag('js', new Date());\n  gtag('config', 'G-XXXXXXX');\n<\/script>\n\n…or just:  G-XXXXXXX";
-      ta.style.cssText = "width:100%; background:var(--panel-2); border:1px solid var(--border); color:var(--text); border-radius:8px; padding:9px 11px; font-size:12px; font-family:'SF Mono',Menlo,monospace; resize:vertical;";
-      ta.value = googleTagToAdd;
-      ta.addEventListener("input", () => {
-        googleTagToAdd = ta.value;
-        ta.classList.toggle("changed", googleTagToAdd.trim() !== "");
-        downloadBtn.disabled = !hasAnyChanges();
-      });
-      wrap.appendChild(ta);
+      info.innerHTML = "<span style='color:var(--red)'>⚠ No Google tag found.</span> Enter your Measurement ID below to add it to the &lt;head&gt; of every HTML page.";
     }
+    wrap.appendChild(info);
+
+    const row = document.createElement("div"); row.className = "row";
+    const input = document.createElement("input");
+    input.type = "text";
+    input.placeholder = "G-XXXXXXX  /  GTM-XXXXXX  /  UA-XXXX-X  (or paste the whole snippet — we extract the ID)";
+    input.value = googleTagToAdd;
+    input.addEventListener("input", () => {
+      googleTagToAdd = input.value;
+      const id = extractTagId(googleTagToAdd);
+      input.classList.toggle("changed", !!id);
+      hintEl.textContent = googleTagToAdd.trim()
+        ? (id ? "✓ Will install a clean tag for " + id + " (removes any old/broken tag first)" : "⚠ Couldn't find a valid G-/GTM-/UA- ID in that text")
+        : "";
+      hintEl.style.color = id ? "var(--green)" : "var(--red)";
+      downloadBtn.disabled = !hasAnyChanges();
+    });
+    row.appendChild(input);
+    wrap.appendChild(row);
+    const hintEl = document.createElement("div");
+    hintEl.className = "files-line";
+    wrap.appendChild(hintEl);
+
     listEl.appendChild(wrap);
   }
 
@@ -628,13 +622,9 @@
     renderResults();
   });
 
-  function activeGoogleTagReplacements() {
-    return googleTags.filter(t => t.replacement.trim() !== "" && t.replacement.trim() !== t.id);
-  }
   function hasAnyChanges() {
     if (activeReplacements().length) return true;
-    if (activeGoogleTagReplacements().length) return true;
-    if (googleTags.length === 0 && googleTagToAdd.trim() !== "") return true;
+    if (extractTagId(googleTagToAdd)) return true;   // a valid Google tag ID was entered
     return false;
   }
 
@@ -646,39 +636,41 @@
     return detections.filter(d => d.replacement.trim() !== "" && d.replacement !== d.original);
   }
 
-  // Apply ALL changes (phone numbers + google tag replace/insert) into zipObj.
+  // Remove any existing Google tag markup (clean OR broken) from an HTML string.
+  function stripGoogleTags(html) {
+    let s = html;
+    s = s.replace(/<!--\s*end\s+google\s+tag\s+manager[\s\S]*?-->/gi, "");
+    s = s.replace(/<!--\s*google\s+tag\s+manager[\s\S]*?-->/gi, "");
+    s = s.replace(/<!--\s*google\s+tag[\s\S]*?-->/gi, "");
+    s = s.replace(/<!--\s*end\s+google\s+tag[\s\S]*?-->/gi, "");
+    // gtag.js / GTM loader scripts (reference googletagmanager.com)
+    s = s.replace(/<script\b[^>]*googletagmanager\.com[\s\S]*?<\/script\s*>/gi, "");
+    // inline scripts that configure gtag / dataLayer / gtm.start
+    s = s.replace(/<script\b(?![^>]*\bsrc\s*=)[^>]*>[\s\S]*?(?:gtag\s*\(|dataLayer|gtm\.start)[\s\S]*?<\/script\s*>/gi, "");
+    // GTM noscript iframe
+    s = s.replace(/<noscript>[\s\S]*?googletagmanager\.com\/ns\.html[\s\S]*?<\/noscript\s*>/gi, "");
+    // tidy up leftover blank lines
+    s = s.replace(/\n{3,}/g, "\n\n");
+    return s;
+  }
+
+  // Apply ALL changes (phone numbers + clean Google tag install) into zipObj.
   // Returns the list of file paths that actually changed.
   function applyAllChanges() {
     const phones = activeReplacements();
-    const tagSwaps = activeGoogleTagReplacements();
-    const rawAdd = (googleTags.length === 0) ? googleTagToAdd.trim() : "";
+    const addId = extractTagId(googleTagToAdd); // always a clean ID, never raw paste
     const isHtml = p => /\.(html?|htm)$/i.test(p);
-
-    // Decide what to insert:
-    //  - if the pasted text contains a <script>, insert it VERBATIM
-    //  - else treat it as a bare ID and build the standard snippet
-    let headInsert = "", bodyInsert = "", addId = "";
-    if (rawAdd) {
-      const idm = rawAdd.match(/\b(G-[A-Z0-9]{6,}|GTM-[A-Z0-9]{4,}|UA-\d{4,}-\d{1,4})\b/i);
-      addId = idm ? idm[1] : "";
-      if (/<script|<!--/i.test(rawAdd)) {
-        headInsert = "\n" + rawAdd + "\n";            // user's exact snippet
-      } else if (addId) {
-        headInsert = "\n" + gtagHeadSnippet(addId);   // build from bare ID
-        if (/^GTM-/i.test(addId)) bodyInsert = "\n" + gtmBodyNoscript(addId);
-      }
-    }
-    const dedupeKey = addId || (rawAdd ? rawAdd.slice(0, 40) : "");
+    const headInsert = addId ? ("\n" + gtagHeadSnippet(addId)) : "";
+    const bodyInsert = (addId && /^GTM-/i.test(addId)) ? ("\n" + gtmBodyNoscript(addId)) : "";
     const changed = [];
 
     htmlFiles.forEach(f => {
       let content = f.content;
       // phone number replacements
       phones.forEach(d => { content = content.replace(new RegExp(escapeRegExp(d.original), "g"), d.replacement.trim()); });
-      // existing google tag ID swaps
-      tagSwaps.forEach(t => { content = content.replace(new RegExp(escapeRegExp(t.id), "g"), t.replacement.trim()); });
-      // insert the new google tag into <head> if this page doesn't already have it
-      if (headInsert && isHtml(f.path) && !(dedupeKey && content.includes(dedupeKey)) && /<head[^>]*>/i.test(content)) {
+      // clean Google tag install: strip any existing (clean/broken) tag, then insert fresh
+      if (addId && isHtml(f.path) && /<head[^>]*>/i.test(content)) {
+        content = stripGoogleTags(content);
         content = content.replace(/<head[^>]*>/i, m => m + headInsert);
         if (bodyInsert && /<body[^>]*>/i.test(content)) {
           content = content.replace(/<body[^>]*>/i, m => m + bodyInsert);
