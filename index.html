@@ -271,6 +271,63 @@
     0%, 100% { box-shadow: 0 0 0 0 rgba(123,211,137,0); }
     50% { box-shadow: 0 0 0 4px rgba(123,211,137,0.22); }
   }
+
+  /* ===== Retro CRT terminal for live deploy logs ===== */
+  .deploy-term {
+    position: relative;
+    margin-top: 8px;
+    background: #04130b;
+    border: 1px solid #1f6b3a;
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+    font-size: 12px;
+    line-height: 1.7;
+    color: #5dffa0;
+    text-shadow: 0 0 5px rgba(93,255,160,0.55);
+    overflow: hidden;
+    box-shadow: inset 0 0 24px rgba(0,255,128,0.08), 0 0 0 1px rgba(0,0,0,0.4);
+    animation: termFlicker 5s steps(60) infinite;
+  }
+  .deploy-term::before { /* scanlines */
+    content: ""; position: absolute; inset: 0; pointer-events: none;
+    background: repeating-linear-gradient(to bottom, rgba(0,0,0,0) 0px, rgba(0,0,0,0) 2px, rgba(0,0,0,0.18) 3px, rgba(0,0,0,0) 4px);
+    animation: scanMove 8s linear infinite;
+  }
+  .deploy-term::after { /* moving sheen */
+    content: ""; position: absolute; left: 0; right: 0; top: -40%; height: 40%;
+    background: linear-gradient(to bottom, rgba(93,255,160,0.07), rgba(93,255,160,0));
+    animation: sheen 3.2s ease-in-out infinite;
+    pointer-events: none;
+  }
+  .deploy-term .dt-line { position: relative; z-index: 1; white-space: pre-wrap; }
+  .deploy-term .dt-rocket { display: inline-block; animation: rocketBob 0.9s ease-in-out infinite; }
+  .deploy-term .dt-cursor { display: inline-block; width: 8px; background: #5dffa0; margin-left: 2px;
+    animation: blink 1s steps(2) infinite; }
+  .deploy-term .dt-bar {
+    position: relative; z-index: 1; height: 8px; border-radius: 4px; margin-top: 6px;
+    background: #0a2e1a; overflow: hidden; border: 1px solid #1f6b3a;
+  }
+  .deploy-term .dt-bar > i {
+    position: absolute; top: 0; bottom: 0; width: 35%;
+    background: linear-gradient(90deg, transparent, #5dffa0, transparent);
+    animation: barSweep 1.3s linear infinite;
+  }
+  .deploy-term .dt-step { opacity: 0.45; }
+  .deploy-term .dt-step.active { opacity: 1; animation: stepPulse 1s ease-in-out infinite; }
+  .deploy-term .dt-step.done { opacity: 1; color: #b6ffd0; }
+  .deploy-term.success { color: #8effb8; border-color: #34d058; box-shadow: inset 0 0 30px rgba(52,208,88,0.18); animation: none; }
+  .deploy-term.error { color: #ff8c8c; border-color: #ef4444; text-shadow: 0 0 5px rgba(255,80,80,0.5);
+    background: #170707; box-shadow: inset 0 0 24px rgba(255,0,0,0.1); animation: termShake 0.4s ease; }
+  .deploy-term a { color: #7fd0ff !important; text-shadow: none; }
+  @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0; } }
+  @keyframes rocketBob { 0%,100% { transform: translateY(0) rotate(-8deg); } 50% { transform: translateY(-4px) rotate(8deg); } }
+  @keyframes barSweep { 0% { left: -35%; } 100% { left: 100%; } }
+  @keyframes scanMove { 0% { background-position: 0 0; } 100% { background-position: 0 8px; } }
+  @keyframes sheen { 0% { top: -40%; } 60%,100% { top: 120%; } }
+  @keyframes termFlicker { 0%,96%,100% { opacity: 1; } 97% { opacity: 0.85; } 98% { opacity: 0.97; } }
+  @keyframes stepPulse { 0%,100% { text-shadow: 0 0 4px rgba(93,255,160,0.4);} 50% { text-shadow: 0 0 10px rgba(93,255,160,0.9);} }
+  @keyframes termShake { 0%,100%{transform:translateX(0);} 25%{transform:translateX(-4px);} 75%{transform:translateX(4px);} }
   .last-edit {
     font-size: 10px; color: var(--muted-2); margin-top: 3px; font-weight: 400;
     display: block;
@@ -1391,7 +1448,8 @@ function openModal(id) {
     if (lbl) lbl.remove();
   });
   document.getElementById('detectStatus').textContent = '';
-  document.getElementById('amplifyStatus').textContent = '';
+  const _as = document.getElementById('amplifyStatus');
+  _as.textContent = ''; _as.className = ''; _as.style.color = 'var(--muted)';
   // Region/branch are deploy-time inputs, not stored per row — reset to defaults
   const regionEl = document.getElementById('f_region');
   if (regionEl && !regionEl.value) regionEl.value = 'us-east-1';
@@ -2766,13 +2824,31 @@ async function pollAmplifyJob({ appId, region, branch, jobId, url, consoleUrl })
   // Continuous timer (keeps the elapsed counter ticking between AWS pings)
   let timerId = null;
   let phase = 'building'; // 'building' | 'verifying'
+  // Render the step trail with the active step pulsing
+  function stepTrailHtml() {
+    if (!lastStepLine) return '';
+    return lastStepLine.split(' → ').map(s => {
+      const cls = s.includes('⏳') ? 'dt-step active' : (s.includes('✓') ? 'dt-step done' : 'dt-step');
+      return `<span class="${cls}">${escapeHtml(s)}</span>`;
+    }).join(' <span style="opacity:.4">→</span> ');
+  }
   function tick() {
     if (!document.body.contains(status)) { clearInterval(timerId); return; }
     const el = fmtElapsed(Date.now() - startedAt);
+    status.className = 'deploy-term';
+    status.style.color = '';
     if (phase === 'building') {
-      status.innerHTML = `⏳ <strong>${escapeHtml(currentAwsStatus || 'STARTING')}</strong> · running for <strong>${el}</strong> — <a href="${escapeAttr(consoleUrl)}" target="_blank" rel="noopener">AWS console</a><br><span style="font-size:11px;">${escapeHtml(lastStepLine)}</span>`;
+      status.innerHTML =
+        `<div class="dt-line"><span class="dt-rocket">🚀</span> <strong>${escapeHtml(currentAwsStatus || 'STARTING')}</strong> · t+${el}<span class="dt-cursor">&nbsp;</span></div>` +
+        `<div class="dt-line" style="margin-top:4px;">${stepTrailHtml()}</div>` +
+        `<div class="dt-bar"><i></i></div>` +
+        `<div class="dt-line" style="margin-top:6px; font-size:11px; opacity:.8;">&gt; building from GitHub… <a href="${escapeAttr(consoleUrl)}" target="_blank" rel="noopener">[ watch in AWS console ]</a></div>`;
     } else if (phase === 'verifying') {
-      status.innerHTML = `🔄 <strong>Build done in ${escapeHtml(fmtElapsed(buildEndedAt - startedAt))}</strong> · verifying site is live (${el} total)…<br><span style="font-size:11px;">${escapeHtml(lastStepLine)}</span>`;
+      status.innerHTML =
+        `<div class="dt-line">🛰  <strong>BUILD OK</strong> in ${escapeHtml(fmtElapsed(buildEndedAt - startedAt))} · pinging site… t+${el}<span class="dt-cursor">&nbsp;</span></div>` +
+        `<div class="dt-line" style="margin-top:4px;">${stepTrailHtml()}</div>` +
+        `<div class="dt-bar"><i></i></div>` +
+        `<div class="dt-line" style="margin-top:6px; font-size:11px; opacity:.8;">&gt; waiting for HTTP 200 from the edge…</div>`;
     }
   }
   let currentAwsStatus = 'PENDING';
@@ -2823,19 +2899,21 @@ async function pollAmplifyJob({ appId, region, branch, jobId, url, consoleUrl })
     const reason = (failedStep && failedStep.statusReason) || statusUpdateReason || '(no reason returned by AWS)';
     const logUrl = failedStep && failedStep.logUrl ? failedStep.logUrl : null;
     const total = fmtElapsed(buildEndedAt - startedAt);
-    status.style.color = 'var(--danger)';
-    status.innerHTML = `❌ <strong>Deploy ${escapeHtml(finalAwsStatus)}</strong> after ${escapeHtml(total)} — failed at step <strong>${escapeHtml((failedStep && failedStep.name) || '?')}</strong><br>
-      <span style="font-size:12px;">Reason: ${escapeHtml(reason)}</span><br>
-      <span style="font-size:11px; color:var(--muted);">${escapeHtml(lastStepLine)}</span><br>
-      ${logUrl ? `<a href="${escapeAttr(logUrl)}" target="_blank" rel="noopener" style="font-size:12px;">📄 Open build log</a> · ` : ''}<a href="${escapeAttr(consoleUrl)}" target="_blank" rel="noopener" style="font-size:12px;">AWS console</a>`;
+    status.className = 'deploy-term error';
+    status.style.color = '';
+    status.innerHTML =
+      `<div class="dt-line">💥 <strong>DEPLOY FAILED</strong> after ${escapeHtml(total)} — at step <strong>${escapeHtml((failedStep && failedStep.name) || '?')}</strong></div>` +
+      `<div class="dt-line" style="margin-top:4px;">&gt; ${escapeHtml(reason)}</div>` +
+      `<div class="dt-line" style="margin-top:4px; opacity:.7;">${stepTrailHtml()}</div>` +
+      `<div class="dt-line" style="margin-top:6px; font-size:11px;">${logUrl ? `<a href="${escapeAttr(logUrl)}" target="_blank" rel="noopener">📄 build log</a> · ` : ''}<a href="${escapeAttr(consoleUrl)}" target="_blank" rel="noopener">AWS console</a></div>`;
     return;
   }
 
   // ---- Build timed out before any terminal status ----
   if (!finalAwsStatus) {
     clearInterval(timerId);
-    status.style.color = 'var(--muted)';
-    status.innerHTML = `⌛ Still building after 10 minutes. <a href="${escapeAttr(consoleUrl)}" target="_blank" rel="noopener">Check AWS console</a>.`;
+    status.className = 'deploy-term';
+    status.innerHTML = `<div class="dt-line">⌛ Still building after 10 min. <a href="${escapeAttr(consoleUrl)}" target="_blank" rel="noopener">Check AWS console</a>.</div>`;
     return;
   }
 
@@ -2847,16 +2925,20 @@ async function pollAmplifyJob({ appId, region, branch, jobId, url, consoleUrl })
     if (await urlIsLive(url)) {
       clearInterval(timerId);
       const totalMs = Date.now() - startedAt;
-      status.style.color = 'var(--ok, #4ade80)';
-      status.innerHTML = `✅ <strong>Deployed in ${escapeHtml(fmtElapsed(totalMs))}</strong> — <a href="${escapeAttr(url)}" target="_blank" rel="noopener">${escapeHtml(url)}</a> · <a href="${escapeAttr(consoleUrl)}" target="_blank" rel="noopener">AWS console</a><br><span style="font-size:11px; color:var(--muted);">${escapeHtml(lastStepLine)}</span>`;
+      status.className = 'deploy-term success';
+      status.style.color = '';
+      status.innerHTML =
+        `<div class="dt-line">✅ <strong>DEPLOYED</strong> in ${escapeHtml(fmtElapsed(totalMs))} 🎉</div>` +
+        `<div class="dt-line" style="margin-top:4px;">&gt; live at <a href="${escapeAttr(url)}" target="_blank" rel="noopener">${escapeHtml(url)}</a></div>` +
+        `<div class="dt-line" style="margin-top:4px; opacity:.8;">${stepTrailHtml()} · <a href="${escapeAttr(consoleUrl)}" target="_blank" rel="noopener">AWS console</a></div>`;
       return;
     }
     await new Promise(r => setTimeout(r, VERIFY_INTERVAL_MS));
   }
   // Verification timed out
   clearInterval(timerId);
-  status.style.color = 'var(--muted)';
-  status.innerHTML = `⚠ AWS reported SUCCEED but the URL didn't respond 200 within 3 min. It may still come up. <a href="${escapeAttr(url)}" target="_blank" rel="noopener">Try opening it</a> · <a href="${escapeAttr(consoleUrl)}" target="_blank" rel="noopener">AWS console</a>`;
+  status.className = 'deploy-term';
+  status.innerHTML = `<div class="dt-line">⚠ AWS says SUCCEED but no HTTP 200 yet (3 min). It may still come up. <a href="${escapeAttr(url)}" target="_blank" rel="noopener">Try opening it ↗</a></div>`;
 }
 
 async function deleteFromAmplify() {
