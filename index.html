@@ -690,6 +690,7 @@
       <button class="btn" onclick="openSettings()">⚙ Settings</button>
       <button class="btn" onclick="openAmplifyManager()" title="Manage AWS Amplify apps across all regions">☁ Amplify Apps</button>
       <button class="btn" onclick="openGithubManager()" title="Browse GitHub repos — deployed vs not deployed">🐙 GitHub</button>
+      <button class="btn" onclick="openHistory()" title="Full change history — deploys, deletes, archives, edits">📜 History</button>
       <button class="btn primary" onclick="openModal()">+ New Website</button>
       <button class="btn ghost" onclick="logout()">Logout</button>
     </div>
@@ -821,6 +822,43 @@
     <div class="modal-footer">
       <button class="btn" onclick="closeSettings()">Cancel</button>
       <button class="btn primary" onclick="saveSettings()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- HISTORY (all events) -->
+<div class="modal-bg" id="historyModal">
+  <div class="modal" style="max-width: 1000px;">
+    <div class="modal-header">
+      <h2>📜 History — all changes</h2>
+      <div style="display:flex; gap:8px; align-items:center;">
+        <input id="histSearch" placeholder="🔍 filter by site, person, action…" oninput="renderGlobalHistory()" style="font-size:12px; padding:4px 8px; min-width:220px;"/>
+        <button class="btn" onclick="renderGlobalHistory()">↻ Refresh</button>
+        <button class="icon-btn" onclick="closeHistory()">✕</button>
+      </div>
+    </div>
+    <div class="modal-body">
+      <div id="histStatus" style="font-size:13px; color:var(--muted); margin-bottom:10px;"></div>
+      <div style="overflow:auto; max-height: 68vh;">
+        <table class="tbl" style="width:100%;">
+          <thead>
+            <tr>
+              <th>When</th>
+              <th>Who</th>
+              <th>Action</th>
+              <th>Site</th>
+              <th>Details</th>
+            </tr>
+          </thead>
+          <tbody id="histTableBody">
+            <tr><td colspan="5" style="text-align:center; color:var(--muted); padding:30px;">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <span id="histCount" style="color:var(--muted); font-size:13px; margin-right:auto;"></span>
+      <button class="btn" onclick="closeHistory()">Close</button>
     </div>
   </div>
 </div>
@@ -1863,6 +1901,106 @@ function toggleArchive(id) {
   render();
 }
 
+// ===== Global History (all events: edits, deploys, deletes, archives) =====
+let _histEvents = [];
+function openHistory() {
+  document.getElementById('historyModal').classList.add('open');
+  loadGlobalHistory();
+}
+function closeHistory() {
+  document.getElementById('historyModal').classList.remove('open');
+}
+async function loadGlobalHistory() {
+  const statusEl = document.getElementById('histStatus');
+  statusEl.style.color = 'var(--muted)';
+  statusEl.textContent = 'Building timeline…';
+  const events = [];
+
+  // 1) Per-row change history (field edits, created, archived) + user notes
+  for (const r of records) {
+    const site = r.topic || r.appname || '(untitled)';
+    for (const n of (r.notes || [])) {
+      if (n.type === 'change') {
+        let action, details;
+        if (n.field === '__created') { action = 'created'; details = 'Site added'; }
+        else if (n.field === '__archived') { action = (n.newValue === 'archived') ? 'archived' : 'unarchived'; details = n.newValue === 'archived' ? 'Hidden from homepage' : 'Restored to homepage'; }
+        else {
+          action = 'edited';
+          const lbl = FIELD_LABELS[n.field] || n.field;
+          details = `${lbl}: "${(n.oldValue||'∅')}" → "${(n.newValue||'∅')}"`;
+        }
+        events.push({ ts: n.ts || 0, author: n.author || 'Team', action, site, details });
+      } else if (n.type === 'note') {
+        events.push({ ts: n.ts || 0, author: n.author || 'Team', action: 'note', site, details: n.text || '' });
+      }
+    }
+  }
+
+  // 2) Amplify audit events (deploys / deletes with IP + location)
+  try {
+    const audit = await sbAuditLoad(300);
+    for (const a of audit) {
+      events.push({
+        ts: a.ts ? new Date(a.ts).getTime() : 0,
+        author: a.author || 'Unknown',
+        action: a.action || 'event',
+        site: a.app_name || a.app_id || '-',
+        details: [a.region ? regionCountry(a.region) : '', a.ip ? `${a.ip}${a.location ? ' · ' + a.location : ''}` : ''].filter(Boolean).join(' · '),
+      });
+    }
+  } catch (e) { /* audit table may not exist */ }
+
+  events.sort((a, b) => b.ts - a.ts);
+  _histEvents = events;
+  renderGlobalHistory();
+}
+function renderGlobalHistory() {
+  const body = document.getElementById('histTableBody');
+  const statusEl = document.getElementById('histStatus');
+  const q = (document.getElementById('histSearch')?.value || '').toLowerCase();
+  let list = _histEvents;
+  if (q) list = list.filter(e => `${e.author} ${e.action} ${e.site} ${e.details}`.toLowerCase().includes(q));
+
+  const icon = a => ({ deploy:'🚀', delete:'🗑', archived:'🗄', unarchived:'↩', created:'✨', edited:'✎', note:'📝' }[a] || '•');
+  const color = a => (a === 'delete' || a === 'archived') ? 'var(--danger)' : (a === 'deploy' || a === 'created') ? 'var(--accent,#4ade80)' : 'var(--text)';
+
+  if (!list.length) {
+    body.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--muted); padding:30px;">No history${q?' matches your filter':' yet'}.</td></tr>`;
+  } else {
+    body.innerHTML = list.slice(0, 500).map(e => `
+      <tr>
+        <td style="font-size:12px; white-space:nowrap;">${e.ts ? escapeHtml(new Date(e.ts).toLocaleString()) : '-'}</td>
+        <td><strong>${escapeHtml(e.author)}</strong></td>
+        <td style="color:${color(e.action)}; white-space:nowrap;">${icon(e.action)} ${escapeHtml((e.action||'').toUpperCase())}</td>
+        <td><strong>${escapeHtml(e.site)}</strong></td>
+        <td style="font-size:12px; color:var(--muted);">${escapeHtml(e.details)}</td>
+      </tr>`).join('');
+  }
+  statusEl.style.color = 'var(--ok, #4ade80)';
+  statusEl.textContent = `${list.length} event(s)${q ? ' (filtered)' : ''}`;
+  document.getElementById('histCount').textContent = `${_histEvents.length} total events`;
+}
+
+// Archive a record programmatically (used by auto-archive on Amplify delete).
+// Adds the __archived change note + an optional reason note, then persists.
+async function archiveRecord(r, reason) {
+  if (!r || r.archived) return;
+  r.archived = true;
+  r.notes = r.notes || [];
+  r.notes.push({
+    type: 'change',
+    field: '__archived',
+    oldValue: 'visible',
+    newValue: 'archived',
+    author: (settings.author || 'Team'),
+    ts: Date.now(),
+  });
+  if (reason) {
+    r.notes.push({ type: 'note', text: '🗄 Auto-archived: ' + reason, author: (settings.author || 'System'), ts: Date.now() });
+  }
+  await persist(r);
+}
+
 function shortUrl(u) {
   try {
     const url = new URL(u);
@@ -2844,34 +2982,26 @@ async function deleteAmplifyAppFromList(appId, region, name) {
     // Remove row from table
     if (row) row.remove();
 
-    // Sync: find dashboard rows that reference this appId, clear their fields
-    const linked = records.filter(r => (r.appname || '').trim() === appId);
+    // Sync: ARCHIVE any dashboard row that references this appId, so it drops
+    // off the homepage automatically (team only needs to delete in Amplify).
+    const linked = records.filter(r => (r.appname || '').trim() === appId && !r.archived);
     for (const r of linked) {
-      const cleared = {
-        ...r,
-        appname: '',
-        website: '',
-        status: 'Draft',
-        platform: r.platform === 'AWS Amplify' ? 'Other' : r.platform,
-        updated: new Date().toISOString(),
-      };
-      try {
-        await sbUpsert(cleared);
-      } catch (e) { console.warn('Failed to clear linked row', r.id, e); }
+      try { await archiveRecord(r, `Amplify app deleted (${appId})`); }
+      catch (e) { console.warn('Failed to archive linked row', r.id, e); }
     }
     if (linked.length) await load();
     render && render();
 
     const status = document.getElementById('amplifyManagerStatus');
     status.style.color = 'var(--ok, #4ade80)';
-    status.textContent = `✓ Deleted ${appId} from ${region}${linked.length ? ` · cleared ${linked.length} linked dashboard row(s)` : ''}`;
+    status.textContent = `✓ Deleted ${appId} from ${region}${linked.length ? ` · archived ${linked.length} site(s) from homepage` : ''}`;
 
     _regionUsageCache = null; // bust cache after delete
     saveSharedRegionUsage(null);
 
     logAuditEvent('delete', {
       appId, appName: name, region,
-      details: { source: 'amplify-manager', linkedRowsCleared: linked.length },
+      details: { source: 'amplify-manager', sitesArchived: linked.length },
     });
 
     // Update count
@@ -3063,13 +3193,18 @@ async function deleteFromAmplify() {
     const data = await res.json();
     if (!res.ok || data.error) throw new Error(data.error || ('HTTP ' + res.status));
 
-    // Clear deployment-related fields so this row can be redeployed fresh
+    // Archive the row being edited so it drops off the homepage automatically
+    let archivedRow = false;
+    if (editingId) {
+      const rec = records.find(r => r.id === editingId);
+      if (rec && !rec.archived) { await archiveRecord(rec, `Amplify app deleted (${data.deletedAppId})`); archivedRow = true; }
+    }
     document.getElementById('f_appname').value = '';
     document.getElementById('f_website').value = '';
     document.getElementById('f_status').value = 'Draft';
 
     status.style.color = 'var(--ok, #4ade80)';
-    status.textContent = `✓ Deleted ${data.deletedAppId} from ${region}. You can deploy a fresh build now.`;
+    status.textContent = `✓ Deleted ${data.deletedAppId} from ${region}.${archivedRow ? ' Site archived from homepage.' : ''}`;
 
     _regionUsageCache = null; // bust cache after delete
     saveSharedRegionUsage(null);
@@ -3077,8 +3212,9 @@ async function deleteFromAmplify() {
     logAuditEvent('delete', {
       appId: data.deletedAppId, appName: document.getElementById('f_topic').value.trim() || data.deletedAppId,
       region,
-      details: { source: 'form-button' },
+      details: { source: 'form-button', archivedRow },
     });
+    render && render();
   } catch (e) {
     status.style.color = 'var(--danger)';
     status.textContent = '✗ ' + (e.message || 'Delete failed');
