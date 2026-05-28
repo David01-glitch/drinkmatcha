@@ -618,6 +618,7 @@
       <input type="file" id="importFile" accept=".json" style="display:none" onchange="importData(event)"/>
       <button class="btn" onclick="openSettings()">⚙ Settings</button>
       <button class="btn" onclick="openAmplifyManager()" title="Manage AWS Amplify apps across all regions">☁ Amplify Apps</button>
+      <button class="btn" onclick="openGithubManager()" title="Browse GitHub repos — deployed vs not deployed">🐙 GitHub</button>
       <button class="btn primary" onclick="openModal()">+ New Website</button>
       <button class="btn ghost" onclick="logout()">Logout</button>
     </div>
@@ -801,7 +802,15 @@
           <button class="btn" id="ghFilterAll" onclick="setGithubFilter('all')" style="background:var(--accent,#4ade80); color:#000; font-size:12px; padding:4px 12px;">All</button>
           <button class="btn" id="ghFilterDeployed" onclick="setGithubFilter('deployed')" style="font-size:12px; padding:4px 12px;">✓ Deployed</button>
           <button class="btn" id="ghFilterUndeployed" onclick="setGithubFilter('undeployed')" style="font-size:12px; padding:4px 12px;">○ Not deployed</button>
+          <button class="btn" id="ghFilterArchived" onclick="setGithubFilter('archived')" style="font-size:12px; padding:4px 12px;">🗄 Archived</button>
           <span id="githubStatus" style="font-size:13px; color:var(--muted); margin-left:auto;">Loading repos…</span>
+        </div>
+        <div style="display:flex; gap:8px; margin-bottom:10px; align-items:center; flex-wrap:wrap; font-size:12px; color:var(--muted);">
+          <span>Updated between:</span>
+          <input type="date" id="ghDateFrom" onchange="renderGithubRepos()" style="font-size:12px; padding:3px 6px;"/>
+          <span>and</span>
+          <input type="date" id="ghDateTo" onchange="renderGithubRepos()" style="font-size:12px; padding:3px 6px;"/>
+          <button class="btn" onclick="clearGithubDateRange()" style="font-size:11px; padding:3px 8px;">Clear dates</button>
         </div>
         <div style="overflow:auto; max-height: 58vh;">
           <table class="tbl" style="width:100%;">
@@ -1257,6 +1266,8 @@ async function showApp() {
   // Hydrate shared Amplify region usage cache so dropdown filters instantly
   // for everyone — even first-time visitors who never scanned themselves
   loadSharedRegionUsage();
+  // Load shared archived-repos list (hidden from the Add Site picker)
+  loadArchivedRepos();
   // Seed snapshot so first poll doesn't fire notifications for existing rows
   seedSnapshot();
   render();
@@ -2228,6 +2239,42 @@ function loadAmplifyTab() {
 // --- GitHub repos: list all + mark deployed (has an Amplify app) ---
 let _githubReposCache = null;     // { ts, repos }
 let _githubFilter = 'all';
+
+// Archived repos — shared across users via Supabase settings.
+// Archived repos are hidden from the New Website undeployed-repo picker.
+let _archivedRepos = new Set();
+async function loadArchivedRepos() {
+  try {
+    const v = await sbGetSetting('github_archived');
+    if (Array.isArray(v)) _archivedRepos = new Set(v.map(normalizeRepoUrl));
+  } catch (e) { console.warn('archived repos load failed:', e); }
+}
+async function saveArchivedRepos() {
+  try { await sbSetSetting('github_archived', [..._archivedRepos]); }
+  catch (e) { console.warn('archived repos save failed:', e); }
+}
+function archiveRepo(url) {
+  _archivedRepos.add(normalizeRepoUrl(url));
+  saveArchivedRepos();
+  renderGithubRepos();
+}
+function unarchiveRepo(url) {
+  _archivedRepos.delete(normalizeRepoUrl(url));
+  saveArchivedRepos();
+  renderGithubRepos();
+}
+function isArchived(url) { return _archivedRepos.has(normalizeRepoUrl(url)); }
+
+// Open the manager straight on the GitHub tab (header button)
+function openGithubManager() {
+  document.getElementById('amplifyModal').classList.add('open');
+  switchAmplifyTab('github');
+}
+function clearGithubDateRange() {
+  document.getElementById('ghDateFrom').value = '';
+  document.getElementById('ghDateTo').value = '';
+  renderGithubRepos();
+}
 function normalizeRepoUrl(u) {
   return (u || '').trim().toLowerCase().replace(/\.git$/, '').replace(/\/$/, '');
 }
@@ -2309,7 +2356,7 @@ async function loadGithubRepos(force = false) {
 }
 function setGithubFilter(f) {
   _githubFilter = f;
-  for (const [id, val] of [['ghFilterAll','all'],['ghFilterDeployed','deployed'],['ghFilterUndeployed','undeployed']]) {
+  for (const [id, val] of [['ghFilterAll','all'],['ghFilterDeployed','deployed'],['ghFilterUndeployed','undeployed'],['ghFilterArchived','archived']]) {
     const b = document.getElementById(id);
     if (b) { b.style.background = (val === f) ? 'var(--accent,#4ade80)' : ''; b.style.color = (val === f) ? '#000' : ''; }
   }
@@ -2323,21 +2370,43 @@ function renderGithubRepos() {
 
   const withStatus = repos.map(r => {
     const info = deployedMap.get(normalizeRepoUrl(r.url));
-    return { ...r, isDeployed: !!info, deployInfo: info || null };
+    return { ...r, isDeployed: !!info, deployInfo: info || null, archived: isArchived(r.url) };
   });
   const deployedCount = withStatus.filter(r => r.isDeployed).length;
-  const undeployedCount = withStatus.length - deployedCount;
+  const undeployedCount = withStatus.filter(r => !r.isDeployed && !r.archived).length;
+  const archivedCount = withStatus.filter(r => r.archived).length;
+
+  // Date-range filter (on updatedAt)
+  const fromStr = document.getElementById('ghDateFrom')?.value;
+  const toStr = document.getElementById('ghDateTo')?.value;
+  const fromMs = fromStr ? new Date(fromStr + 'T00:00:00').getTime() : null;
+  const toMs = toStr ? new Date(toStr + 'T23:59:59').getTime() : null;
 
   let list = withStatus;
-  if (_githubFilter === 'deployed') list = withStatus.filter(r => r.isDeployed);
-  else if (_githubFilter === 'undeployed') list = withStatus.filter(r => !r.isDeployed);
+  // Tab filter
+  if (_githubFilter === 'deployed') list = list.filter(r => r.isDeployed && !r.archived);
+  else if (_githubFilter === 'undeployed') list = list.filter(r => !r.isDeployed && !r.archived);
+  else if (_githubFilter === 'archived') list = list.filter(r => r.archived);
+  else list = list.filter(r => !r.archived); // 'all' excludes archived
+  // Date filter
+  if (fromMs || toMs) {
+    list = list.filter(r => {
+      if (!r.updatedAt) return false;
+      const t = new Date(r.updatedAt).getTime();
+      if (fromMs && t < fromMs) return false;
+      if (toMs && t > toMs) return false;
+      return true;
+    });
+  }
 
   if (!list.length) {
-    body.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--muted); padding:30px;">No repos in this filter.</td></tr>`;
+    body.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--muted); padding:30px;">No repos match this filter${(fromMs||toMs)?' + date range':''}.</td></tr>`;
   } else {
     body.innerHTML = list.map(r => {
       let statusCell;
-      if (r.isDeployed) {
+      if (r.archived) {
+        statusCell = '<span style="color:var(--muted);">🗄 Archived</span>';
+      } else if (r.isDeployed) {
         const plat = r.deployInfo.platform || 'somewhere';
         const site = r.deployInfo.website;
         statusCell = `<span style="color:var(--ok,#4ade80);">✓ Deployed</span>
@@ -2345,22 +2414,27 @@ function renderGithubRepos() {
       } else {
         statusCell = '<span style="color:var(--muted);">○ Not deployed</span>';
       }
+      let actionCell;
+      if (r.archived) {
+        actionCell = `<button class="btn" style="font-size:12px; padding:4px 10px;" onclick="unarchiveRepo('${escapeAttr(r.url)}')">↩ Unarchive</button>`;
+      } else if (r.isDeployed) {
+        actionCell = `<a href="${escapeAttr(r.url)}" target="_blank" rel="noopener" class="btn" style="font-size:12px; padding:4px 10px;">View repo</a>`;
+      } else {
+        actionCell = `<button class="btn primary" style="font-size:12px; padding:4px 10px;" onclick="quickDeployRepo('${escapeAttr(r.url)}','${escapeAttr(r.defaultBranch||'main')}')">🚀 Deploy</button>
+          <button class="btn" style="font-size:12px; padding:4px 10px; margin-left:4px;" onclick="archiveRepo('${escapeAttr(r.url)}')" title="Hide from the Add Site picker">🗄 Archive</button>`;
+      }
       return `
       <tr>
         <td><strong>${escapeHtml(r.name)}</strong>${r.description ? `<div style="font-size:11px; color:var(--muted); margin-top:2px;">${escapeHtml((r.description||'').slice(0,60))}</div>` : ''}</td>
         <td style="font-size:12px;">${r.private ? '🔒 Private' : '🌐 Public'}</td>
         <td style="font-size:12px; color:var(--muted);">${r.updatedAt ? new Date(r.updatedAt).toLocaleDateString() : '-'}</td>
         <td>${statusCell}</td>
-        <td style="text-align:right;">
-          ${r.isDeployed
-            ? `<a href="${escapeAttr(r.url)}" target="_blank" rel="noopener" class="btn" style="font-size:12px; padding:4px 10px;">View repo</a>`
-            : `<button class="btn primary" style="font-size:12px; padding:4px 10px;" onclick="quickDeployRepo('${escapeAttr(r.url)}','${escapeAttr(r.defaultBranch||'main')}')">🚀 Deploy</button>`}
-        </td>
+        <td style="text-align:right; white-space:nowrap;">${actionCell}</td>
       </tr>`;
     }).join('');
   }
   status.style.color = 'var(--ok, #4ade80)';
-  status.textContent = `${withStatus.length} repos · ${deployedCount} deployed · ${undeployedCount} not deployed`;
+  status.textContent = `${withStatus.length} repos · ${deployedCount} deployed · ${undeployedCount} not deployed · ${archivedCount} archived`;
   document.getElementById('amplifyCount').textContent = `${undeployedCount} undeployed / ${withStatus.length} repos`;
 }
 // Populate the New Website "pick undeployed repo" dropdown
@@ -2385,7 +2459,8 @@ async function populateGithubPicker() {
     }
     const repos = (_githubReposCache && _githubReposCache.repos) || [];
     const deployed = deployedRepoSet();
-    const undeployed = repos.filter(r => !deployed.has(normalizeRepoUrl(r.url)));
+    // Exclude both deployed AND archived repos from the picker
+    const undeployed = repos.filter(r => !deployed.has(normalizeRepoUrl(r.url)) && !isArchived(r.url));
 
     sel.innerHTML = '<option value="">📦 Pick undeployed repo…</option>' +
       undeployed.map(r => `<option value="${escapeAttr(r.url)}" data-branch="${escapeAttr(r.defaultBranch || 'main')}">${escapeHtml(r.name)}${r.private ? ' 🔒' : ''}</option>`).join('');
