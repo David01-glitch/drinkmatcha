@@ -183,12 +183,12 @@
   </nav>
 </header>
 <div class="wrap">
-  <h1>HTML Phone Number Replacer</h1>
-  <p class="sub">Upload a ZIP of HTML files → review detected phone numbers → replace them → download the updated ZIP.</p>
+  <h1>Phone Number Replacer</h1>
+  <p class="sub">Upload a ZIP → scans <strong>all text files</strong> (HTML, JS, CSS, JSON, etc.) for phone numbers → replace them → download the updated ZIP or push to GitHub.</p>
 
   <div class="drop" id="drop">
     <div class="big">Drop your <strong>.zip</strong> here, or click to browse</div>
-    <p>All HTML files inside (any folder) will be scanned for phone numbers.</p>
+    <p>Every text file inside (any folder) is scanned — HTML, JS, CSS, JSON, TXT… Binary files (images, fonts, media) are skipped.</p>
     <input type="file" id="file" accept=".zip" class="hidden">
   </div>
 
@@ -325,22 +325,37 @@
     const tasks = [];
     zipObj.forEach((path, entry) => {
       if (entry.dir) return;
-      if (/\.(html?|htm)$/i.test(path)) {
-        tasks.push(entry.async("string").then(content => {
-          htmlFiles.push({ path, content });
-        }));
-      }
+      if (isBinaryPath(path)) return;        // skip images/fonts/media/archives
+      tasks.push(entry.async("string").then(content => {
+        // Skip files that look binary (lots of NUL/control chars)
+        if (looksBinary(content)) return;
+        htmlFiles.push({ path, content });
+      }).catch(() => {}));
     });
     await Promise.all(tasks);
 
     if (htmlFiles.length === 0) {
-      setStatus("No HTML files found inside that ZIP.", "err");
+      setStatus("No readable text files found inside that ZIP.", "err");
       return;
     }
 
     scanForPhones();
     renderResults();
-    setStatus("Found " + htmlFiles.length + " HTML file(s). Review the numbers below.", "ok");
+    setStatus("Scanned " + htmlFiles.length + " text file(s). Review the numbers below.", "ok");
+  }
+
+  // Extensions we never scan (binary / media / archives)
+  const BINARY_EXT = /\.(png|jpe?g|gif|webp|avif|bmp|ico|svgz|tiff?|psd|woff2?|ttf|otf|eot|mp4|webm|mov|avi|mkv|mp3|wav|ogg|flac|m4a|pdf|zip|gz|tar|rar|7z|exe|dll|so|dylib|bin|dat|wasm|class|jar|db|sqlite)$/i;
+  function isBinaryPath(p) { return BINARY_EXT.test(p); }
+  function looksBinary(s) {
+    // sample first 4000 chars; if >2% are NUL/control chars, treat as binary
+    const sample = s.slice(0, 4000);
+    let bad = 0;
+    for (let i = 0; i < sample.length; i++) {
+      const c = sample.charCodeAt(i);
+      if (c === 0 || (c < 9) || (c > 13 && c < 32)) bad++;
+    }
+    return sample.length > 0 && (bad / sample.length) > 0.02;
   }
 
   function scanForPhones() {
@@ -365,7 +380,7 @@
   function renderResults() {
     listEl.innerHTML = "";
     if (detections.length === 0) {
-      listEl.innerHTML = '<div class="empty">No phone numbers detected in the HTML files.</div>';
+      listEl.innerHTML = '<div class="empty">No phone numbers detected in any file.</div>';
       pillEl.textContent = "0 numbers";
       downloadBtn.disabled = true;
       resultsEl.classList.remove("hidden");
