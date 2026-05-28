@@ -348,7 +348,12 @@
   let zipObj = null;          // loaded JSZip instance
   let htmlFiles = [];         // [{path, content}]
   let detections = [];        // [{original, normalizedKey, count, files:Set, replacement}]
+  let googleTags = [];        // detected tag IDs: [{id, count, files:Set, replacement}]
+  let googleTagToAdd = "";    // tag ID to insert when none found
   let originalZipName = "updated.html-bundle";
+
+  // Google tag IDs: GA4 (G-), GTM container (GTM-), Universal Analytics (UA-)
+  const GTAG_RE = /\b(G-[A-Z0-9]{6,}|GTM-[A-Z0-9]{4,}|UA-\d{4,}-\d{1,4})\b/g;
 
   // Strict phone regex — requires phone-style FORMATTING (separators between
   // digit groups, optional +country, optional (area code)). This avoids
@@ -427,8 +432,10 @@
     }
 
     scanForPhones();
+    scanForGoogleTags();
     renderResults();
-    setStatus("Scanned " + htmlFiles.length + " text file(s). Review the numbers below.", "ok");
+    const tagMsg = googleTags.length ? (" · Google tag: " + googleTags.map(t => t.id).join(", ")) : " · No Google tag found";
+    setStatus("Scanned " + htmlFiles.length + " text file(s)." + tagMsg, "ok");
   }
 
   // Extensions we never scan (binary / media / archives)
@@ -464,17 +471,51 @@
     detections = Array.from(map.values()).sort((a, b) => b.count - a.count);
   }
 
+  function scanForGoogleTags() {
+    const map = new Map();
+    htmlFiles.forEach(f => {
+      GTAG_RE.lastIndex = 0; let m;
+      while ((m = GTAG_RE.exec(f.content)) !== null) {
+        const id = m[1];
+        if (!map.has(id)) map.set(id, { id, count: 0, files: new Set(), replacement: "" });
+        const d = map.get(id); d.count++; d.files.add(f.path);
+      }
+    });
+    googleTags = Array.from(map.values()).sort((a, b) => b.count - a.count);
+    googleTagToAdd = "";
+  }
+
+  // Build the install snippet for a tag id (gtag.js for G-/UA-, GTM for GTM-)
+  function gtagHeadSnippet(id) {
+    if (/^GTM-/i.test(id)) {
+      return "<!-- Google Tag Manager -->\n<script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src='https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);})(window,document,'script','dataLayer','" + id + "');</script>\n<!-- End Google Tag Manager -->\n";
+    }
+    return "<!-- Google tag (gtag.js) -->\n<script async src=\"https://www.googletagmanager.com/gtag/js?id=" + id + "\"></script>\n<script>\n  window.dataLayer = window.dataLayer || [];\n  function gtag(){dataLayer.push(arguments);}\n  gtag('js', new Date());\n  gtag('config', '" + id + "');\n</script>\n";
+  }
+  function gtmBodyNoscript(id) {
+    return "<!-- Google Tag Manager (noscript) -->\n<noscript><iframe src=\"https://www.googletagmanager.com/ns.html?id=" + id + "\" height=\"0\" width=\"0\" style=\"display:none;visibility:hidden\"></iframe></noscript>\n<!-- End Google Tag Manager (noscript) -->\n";
+  }
+
   function renderResults() {
     listEl.innerHTML = "";
+
+    // ---- Google Tag section (always shown) ----
+    renderGoogleTagSection();
+
+    // ---- Phone numbers ----
+    const phoneHeader = document.createElement("div");
+    phoneHeader.style.cssText = "font-weight:700; margin:18px 0 8px; font-size:15px;";
+    phoneHeader.textContent = "📞 Phone Numbers";
+    listEl.appendChild(phoneHeader);
+
     if (detections.length === 0) {
-      listEl.innerHTML = '<div class="empty">No phone numbers detected in any file.</div>';
-      pillEl.textContent = "0 numbers";
-      downloadBtn.disabled = true;
-      resultsEl.classList.remove("hidden");
-      return;
+      const empty = document.createElement("div");
+      empty.className = "empty";
+      empty.textContent = "No phone numbers detected in any file.";
+      listEl.appendChild(empty);
     }
-    downloadBtn.disabled = false;
-    pillEl.textContent = detections.length + " unique number" + (detections.length === 1 ? "" : "s");
+    pillEl.textContent = detections.length + " number" + (detections.length === 1 ? "" : "s") +
+      (googleTags.length ? " · tag: " + googleTags.map(t => t.id).join(",") : " · no tag");
 
     detections.forEach((d, i) => {
       const card = document.createElement("div");
@@ -518,13 +559,85 @@
       listEl.appendChild(card);
     });
 
+    downloadBtn.disabled = !hasAnyChanges();
     resultsEl.classList.remove("hidden");
+  }
+
+  // Build the Google Tag UI (replace existing IDs, or add one if none found)
+  function renderGoogleTagSection() {
+    const wrap = document.createElement("div");
+    wrap.className = "card";
+    wrap.style.cssText = "border-left:3px solid var(--accent);";
+    const h = document.createElement("div");
+    h.style.cssText = "font-weight:700; margin-bottom:8px;";
+    h.textContent = "🏷️ Google Tag";
+    wrap.appendChild(h);
+
+    if (googleTags.length) {
+      googleTags.forEach(t => {
+        const row = document.createElement("div");
+        row.className = "row";
+        row.style.marginBottom = "6px";
+        const orig = document.createElement("span");
+        orig.className = "num-orig";
+        orig.textContent = t.id;
+        const meta = document.createElement("span");
+        meta.className = "meta";
+        meta.textContent = t.count + "× in " + Array.from(t.files).length + " file(s)";
+        const arrow = document.createElement("span"); arrow.className = "arrow"; arrow.textContent = "→";
+        const input = document.createElement("input");
+        input.type = "text";
+        input.placeholder = "new tag ID (leave blank to keep)";
+        input.value = t.replacement;
+        input.addEventListener("input", () => {
+          t.replacement = input.value;
+          input.classList.toggle("changed", input.value.trim() !== "" && input.value !== t.id);
+          downloadBtn.disabled = !hasAnyChanges();
+        });
+        row.appendChild(orig); row.appendChild(meta); row.appendChild(arrow); row.appendChild(input);
+        wrap.appendChild(row);
+      });
+      const note = document.createElement("div");
+      note.className = "files-line";
+      note.textContent = "Found in: " + Array.from(new Set(googleTags.flatMap(t => Array.from(t.files)))).join(", ");
+      wrap.appendChild(note);
+    } else {
+      const msg = document.createElement("div");
+      msg.style.cssText = "color:var(--red); font-size:13px; margin-bottom:8px;";
+      msg.textContent = "⚠ No Google tag found. Enter one below to add it to the <head> of every HTML page:";
+      wrap.appendChild(msg);
+      const row = document.createElement("div"); row.className = "row";
+      const input = document.createElement("input");
+      input.type = "text";
+      input.placeholder = "G-XXXXXXX  /  GTM-XXXXXX  /  UA-XXXX-X";
+      input.value = googleTagToAdd;
+      input.addEventListener("input", () => {
+        googleTagToAdd = input.value.trim();
+        input.classList.toggle("changed", googleTagToAdd !== "");
+        downloadBtn.disabled = !hasAnyChanges();
+      });
+      row.appendChild(input);
+      wrap.appendChild(row);
+    }
+    listEl.appendChild(wrap);
   }
 
   resetBtn.addEventListener("click", () => {
     detections.forEach(d => d.replacement = "");
+    googleTags.forEach(t => t.replacement = "");
+    googleTagToAdd = "";
     renderResults();
   });
+
+  function activeGoogleTagReplacements() {
+    return googleTags.filter(t => t.replacement.trim() !== "" && t.replacement.trim() !== t.id);
+  }
+  function hasAnyChanges() {
+    if (activeReplacements().length) return true;
+    if (activeGoogleTagReplacements().length) return true;
+    if (googleTags.length === 0 && googleTagToAdd.trim() !== "") return true;
+    return false;
+  }
 
   function escapeRegExp(s) {
     return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -534,19 +647,33 @@
     return detections.filter(d => d.replacement.trim() !== "" && d.replacement !== d.original);
   }
 
-  // Apply active replacements to the in-memory html file contents and into zipObj.
-  // Returns the list of html file paths that actually changed.
-  function applyReplacements(active) {
+  // Apply ALL changes (phone numbers + google tag replace/insert) into zipObj.
+  // Returns the list of file paths that actually changed.
+  function applyAllChanges() {
+    const phones = activeReplacements();
+    const tagSwaps = activeGoogleTagReplacements();
+    const addTag = (googleTags.length === 0 && googleTagToAdd.trim() !== "") ? googleTagToAdd.trim() : "";
+    const isHtml = p => /\.(html?|htm)$/i.test(p);
     const changed = [];
+
     htmlFiles.forEach(f => {
       let content = f.content;
-      active.forEach(d => {
-        const re = new RegExp(escapeRegExp(d.original), "g");
-        content = content.replace(re, d.replacement.trim());
-      });
+      // phone number replacements
+      phones.forEach(d => { content = content.replace(new RegExp(escapeRegExp(d.original), "g"), d.replacement.trim()); });
+      // existing google tag ID swaps
+      tagSwaps.forEach(t => { content = content.replace(new RegExp(escapeRegExp(t.id), "g"), t.replacement.trim()); });
+      // insert a new google tag into <head> (and <body> noscript for GTM) if none existed
+      if (addTag && isHtml(f.path) && !content.includes(addTag)) {
+        if (/<head[^>]*>/i.test(content)) {
+          content = content.replace(/<head[^>]*>/i, m => m + "\n" + gtagHeadSnippet(addTag));
+          if (/^GTM-/i.test(addTag) && /<body[^>]*>/i.test(content)) {
+            content = content.replace(/<body[^>]*>/i, m => m + "\n" + gtmBodyNoscript(addTag));
+          }
+        }
+      }
       if (content !== f.content) {
         f.content = content;
-        zipObj.file(f.path, content); // overwrite in place, preserves structure
+        zipObj.file(f.path, content);
         changed.push(f.path);
       }
     });
@@ -554,15 +681,14 @@
   }
 
   downloadBtn.addEventListener("click", async () => {
-    const active = activeReplacements();
-    if (active.length === 0) {
-      setStatus("No replacements entered — nothing to change.", "err");
+    if (!hasAnyChanges()) {
+      setStatus("No changes entered — replace a number or add/change a Google tag first.", "err");
       return;
     }
     setStatus("Building updated ZIP…");
     downloadBtn.disabled = true;
     try {
-      applyReplacements(active);
+      const changed = applyAllChanges();
       const blob = await zipObj.generateAsync({ type: "blob", compression: "DEFLATE" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -572,7 +698,7 @@
       a.click();
       a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 4000);
-      setStatus("Done — updated ZIP downloaded with " + active.length + " number(s) replaced.", "ok");
+      setStatus("Done — updated ZIP downloaded (" + changed.length + " file(s) changed).", "ok");
     } catch (err) {
       setStatus("Something went wrong building the ZIP: " + err.message, "err");
     } finally {
@@ -612,11 +738,10 @@
         zipBlob = chosen;
         label = chosen.name;
       } else {
-        const active = activeReplacements();
-        applyReplacements(active); // apply any number changes into the loaded zip
+        const changed = applyAllChanges(); // apply phone + google-tag edits into the loaded zip
         setGhStatus("Building zip from your edits…");
         zipBlob = await zipObj.generateAsync({ type: "blob", compression: "DEFLATE" });
-        label = "loaded zip" + (active.length ? " (" + active.length + " number(s) replaced)" : "");
+        label = "loaded zip" + (changed.length ? " (" + changed.length + " file(s) changed)" : "");
       }
 
       setGhStatus("Uploading " + label + " and pushing via server…");
