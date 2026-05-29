@@ -666,33 +666,61 @@
     return snippet + html;
   }
 
-  // Apply ALL changes (phone numbers + clean Google tag install) into zipObj.
+  // A "real page" worth receiving a brand-new tag: not a 404/error placeholder
+  // and not a tiny helper file (some sites store fonts/CSS as .html stubs and
+  // load them via <link rel="stylesheet">). Used ONLY when no tag exists yet.
+  function looksLikeRealPage(html) {
+    if (/<title>\s*404\b|404\s+not\s+found/i.test(html)) return false;
+    if (/id=["']root["']/i.test(html)) return true;            // SPA mount point
+    const m = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+    const inner = m ? m[1] : "";
+    return inner.replace(/<[^>]*>/g, "").replace(/\s+/g, "").length > 60;
+  }
+
+  // Apply ALL changes (phone numbers + Google tag) into zipObj.
   // Returns the list of file paths that actually changed.
+  //
+  // Google tag rules — keep the output byte-identical to the input except the
+  // intended edits:
+  //   • If a tag already exists anywhere → just swap the old ID(s) for the new
+  //     one, in place. Nothing moves, no file without the tag is touched.
+  //   • If NO tag exists anywhere → insert a fresh snippet, but only into real
+  //     pages (never 404/stylesheet helper files).
   function applyAllChanges() {
     const phones = activeReplacements();
-    const addId = extractTagId(googleTagToAdd); // always a clean ID, never raw paste
+    const newId = extractTagId(googleTagToAdd);   // clean ID, or "" if none entered
+    const haveExisting = googleTags.length > 0;
     const isHtml = p => /\.(html?|htm)$/i.test(p);
-    const headInsert = addId ? ("\n" + gtagHeadSnippet(addId)) : "";
-    const bodyInsert = (addId && /^GTM-/i.test(addId)) ? ("\n" + gtmBodyNoscript(addId)) : "";
     const changed = [];
 
     htmlFiles.forEach(f => {
       let content = f.content;
+
       // phone number replacements (function form so $-sequences in the new
       // number are treated literally, never as replacement-pattern tokens)
       phones.forEach(d => { const repl = d.replacement.trim(); content = content.replace(new RegExp(escapeRegExp(d.original), "g"), () => repl); });
-      // clean Google tag install: strip any existing (clean/broken) tag, then insert fresh.
-      // Handles pages with a normal <head>, AND malformed pages that only have
-      // </head> (no opening tag) or only <html>.
-      const hasHeadRegion = /<head[^>]*>/i.test(content) || /<\/head\s*>/i.test(content) || /<html[^>]*>/i.test(content);
-      if (addId && isHtml(f.path) && hasHeadRegion) {
-        content = stripGoogleTags(content);
-        content = insertTagInHead(content, headInsert);
-        if (bodyInsert) {
-          if (/<body[^>]*>/i.test(content)) content = content.replace(/<body[^>]*>/i, m => m + bodyInsert);
-          else content = insertTagInHead(content, bodyInsert);
+
+      if (newId) {
+        if (haveExisting) {
+          // in-place ID swap — touches only the tag ID characters
+          googleTags.forEach(t => {
+            if (t.id !== newId) content = content.replace(new RegExp(escapeRegExp(t.id), "g"), () => newId);
+          });
+        } else if (isHtml(f.path) && looksLikeRealPage(content)) {
+          // no tag anywhere: install a fresh one, real pages only
+          const hasHeadRegion = /<head[^>]*>/i.test(content) || /<\/head\s*>/i.test(content) || /<html[^>]*>/i.test(content);
+          if (hasHeadRegion) {
+            content = stripGoogleTags(content);
+            content = insertTagInHead(content, "\n" + gtagHeadSnippet(newId));
+            if (/^GTM-/i.test(newId)) {
+              const bodyInsert = "\n" + gtmBodyNoscript(newId);
+              if (/<body[^>]*>/i.test(content)) content = content.replace(/<body[^>]*>/i, m => m + bodyInsert);
+              else content = insertTagInHead(content, bodyInsert);
+            }
+          }
         }
       }
+
       if (content !== f.content) {
         f.content = content;
         zipObj.file(f.path, content);
