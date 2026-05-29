@@ -637,35 +637,21 @@
     return detections.filter(d => d.replacement.trim() !== "" && d.replacement !== d.original);
   }
 
-  // Drop only ORPHAN closing-script tags (no matching opener) — leaves valid
-  // balanced scripts (incl. the page's own) untouched. Cleans up the dangling
-  // closers left behind when a broken tag has a fake closing tag inside a string.
-  function removeOrphanScriptCloses(s) {
-    const re = /<script\b[^>]*>|<\/script\s*>/gi;
-    let out = "", last = 0, depth = 0, mm;
-    while ((mm = re.exec(s)) !== null) {
-      if (/^<\/script/i.test(mm[0])) {
-        if (depth === 0) { out += s.slice(last, mm.index); last = re.lastIndex; }
-        else depth--;
-      } else depth++;
-    }
-    return out + s.slice(last);
-  }
-
-  // Remove any existing Google tag markup (clean OR broken) from an HTML string.
+  // Remove any existing Google tag markup from an HTML string.
+  // Every pattern is "tempered" so a match can never cross out of the element it
+  // started in — i.e. (?:(?!</script\b)[\s\S])*? stops at the first closing tag.
+  // The old version used a plain [\s\S]*? which jumped across unrelated
+  // </script> boundaries and deleted the page's real scripts (broken downloads).
   function stripGoogleTags(html) {
     let s = html;
     // tag comments
     s = s.replace(/<!--\s*(?:end\s+)?google\s+tag(?:\s+manager)?[\s\S]*?-->/gi, "");
-    // GTM noscript iframe (usually in body) — safe, only matches GTM
-    s = s.replace(/<noscript>[\s\S]*?googletagmanager\.com\/ns\.html[\s\S]*?<\/noscript\s*>/gi, "");
-    // gtag.js / GTM loader scripts (reference googletagmanager.com) — lazy
-    s = s.replace(/<script\b[^>]*googletagmanager\.com[\s\S]*?<\/script\s*>/gi, "");
-    // inline scripts that configure gtag / dataLayer / gtm.start — lazy
-    s = s.replace(/<script\b(?![^>]*\bsrc\s*=)[^>]*>[\s\S]*?(?:gtag\s*\(|dataLayer|gtm\.start)[\s\S]*?<\/script\s*>/gi, "");
-    // a broken tag with a fake closing tag inside leaves an orphan closer + junk:
-    s = removeOrphanScriptCloses(s);
-    s = s.replace(/^\s*'?\)\s*;?\s*$/gm, ""); // leftover  ');  lines
+    // GTM noscript iframe — confined to a single <noscript> block
+    s = s.replace(/<noscript\b[^>]*>(?:(?!<\/noscript\b)[\s\S])*?googletagmanager\.com\/ns\.html(?:(?!<\/noscript\b)[\s\S])*?<\/noscript\s*>/gi, "");
+    // external gtag.js / GTM loader (empty <script src="…googletagmanager.com…">)
+    s = s.replace(/<script\b[^>]*\bsrc\s*=\s*["'][^"']*googletagmanager\.com[^"']*["'][^>]*>\s*<\/script\s*>/gi, "");
+    // inline scripts that configure gtag / dataLayer / gtm.start — confined to ONE script block
+    s = s.replace(/<script\b(?![^>]*\bsrc\s*=)[^>]*>(?:(?!<\/script\b)[\s\S])*?(?:gtag\s*\(|dataLayer|gtm\.start)(?:(?!<\/script\b)[\s\S])*?<\/script\s*>/gi, "");
     s = s.replace(/\n{3,}/g, "\n\n");
     return s;
   }
@@ -692,8 +678,9 @@
 
     htmlFiles.forEach(f => {
       let content = f.content;
-      // phone number replacements
-      phones.forEach(d => { content = content.replace(new RegExp(escapeRegExp(d.original), "g"), d.replacement.trim()); });
+      // phone number replacements (function form so $-sequences in the new
+      // number are treated literally, never as replacement-pattern tokens)
+      phones.forEach(d => { const repl = d.replacement.trim(); content = content.replace(new RegExp(escapeRegExp(d.original), "g"), () => repl); });
       // clean Google tag install: strip any existing (clean/broken) tag, then insert fresh.
       // Handles pages with a normal <head>, AND malformed pages that only have
       // </head> (no opening tag) or only <html>.
