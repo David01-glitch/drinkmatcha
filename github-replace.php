@@ -39,7 +39,8 @@ if (!preg_match('~github\.com[/:]([^/]+)/([^/\s]+?)(?:\.git)?(?:[/?#].*)?$~i', $
 }
 $owner = $m[1]; $repo = $m[2];
 $base = "/repos/$owner/$repo";
-$backupBranch = '_backup_' . $branch;
+$backupBranch   = '_backup_' . $branch;    // last pre-replace state (layered)
+$originalBranch = '_original_' . $branch;   // TRUE original, saved once, never overwritten
 
 function gh($method, $path, $body = null) {
   global $token;
@@ -66,26 +67,37 @@ function gh($method, $path, $body = null) {
 function ghTry($method, $path, $body = null) { try { return gh($method, $path, $body); } catch (Throwable $e) { return null; } }
 
 try {
-  // ---------------- RESTORE ----------------
+  // ---------------- RESTORE (always to ORIGINAL by default) ----------------
   if ($action === 'restore') {
-    // If a specific snapshot SHA is given, restore THAT version's tree.
-    // Otherwise fall back to the latest _backup_<branch> branch.
+    // Source priority:
+    //   1) explicit sha (specific snapshot, if ever needed)
+    //   2) _original_<branch>  ← the TRUE original (default for Reverse)
+    //   3) _backup_<branch>    ← last pre-replace state (legacy fallback)
     $wantSha = trim($_POST['sha'] ?? '');
+    $restoredFrom = '';
     if ($wantSha) {
-      $backupCommit = gh('GET', "$base/git/commits/$wantSha");
+      $srcCommit = gh('GET', "$base/git/commits/$wantSha");
+      $restoredFrom = 'sha:' . substr($wantSha, 0, 10);
     } else {
-      $bref = ghTry('GET', "$base/git/ref/heads/" . rawurlencode($backupBranch));
-      if (!$bref) { http_response_code(400); echo json_encode(['error' => 'No backup found for this branch — nothing to restore.']); exit; }
-      $backupCommit = gh('GET', "$base/git/commits/" . $bref['object']['sha']);
+      $oref = ghTry('GET', "$base/git/ref/heads/" . rawurlencode($originalBranch));
+      if ($oref) {
+        $srcCommit = gh('GET', "$base/git/commits/" . $oref['object']['sha']);
+        $restoredFrom = 'original';
+      } else {
+        $bref = ghTry('GET', "$base/git/ref/heads/" . rawurlencode($backupBranch));
+        if (!$bref) { http_response_code(400); echo json_encode(['error' => 'No original/backup found for this branch — nothing to restore.']); exit; }
+        $srcCommit = gh('GET', "$base/git/commits/" . $bref['object']['sha']);
+        $restoredFrom = 'backup';
+      }
     }
-    $backupTree = $backupCommit['tree']['sha'];
+    $srcTree = $srcCommit['tree']['sha'];
 
     $cur = gh('GET', "$base/git/ref/heads/" . rawurlencode($branch));
     $curSha = $cur['object']['sha'];
 
     $commit = gh('POST', "$base/git/commits", [
-      'message' => 'Restore previous content (reverse replace)',
-      'tree' => $backupTree,
+      'message' => 'Restore to original website',
+      'tree' => $srcTree,
       'parents' => [$curSha],
     ]);
     gh('PATCH', "$base/git/refs/heads/" . rawurlencode($branch), ['sha' => $commit['sha']]);
@@ -95,6 +107,7 @@ try {
       'commitUrl' => "https://github.com/$owner/$repo/commit/" . $commit['sha'],
       'branch' => $branch,
       'restored' => true,
+      'restoredFrom' => $restoredFrom,
     ]);
     exit;
   }
@@ -140,9 +153,11 @@ try {
   // The pre-replace HEAD is this version's restore point (snapshot).
   $backupSha = (!$isEmpty && $curSha) ? $curSha : null;
 
-  // Back up current HEAD to the hidden backup branch (only if repo has content)
+  // Back up current HEAD + preserve the TRUE original (only if repo has content)
   $backedUp = false;
+  $originalSaved = false;
   if (!$isEmpty && $curSha) {
+    // (a) layered backup — last pre-replace state (overwritten each replace)
     $existingBackup = ghTry('GET', "$base/git/ref/heads/" . rawurlencode($backupBranch));
     if ($existingBackup) {
       gh('PATCH', "$base/git/refs/heads/" . rawurlencode($backupBranch), ['sha' => $curSha, 'force' => true]);
@@ -150,6 +165,15 @@ try {
       gh('POST', "$base/git/refs", ['ref' => 'refs/heads/' . $backupBranch, 'sha' => $curSha]);
     }
     $backedUp = true;
+
+    // (b) TRUE original — created ONCE on the first replace, NEVER overwritten.
+    //     This is what "Reverse" always restores to, no matter how many
+    //     times the repo is replaced afterwards.
+    $existingOriginal = ghTry('GET', "$base/git/ref/heads/" . rawurlencode($originalBranch));
+    if (!$existingOriginal) {
+      gh('POST', "$base/git/refs", ['ref' => 'refs/heads/' . $originalBranch, 'sha' => $curSha]);
+      $originalSaved = true;
+    }
   }
 
   // Bootstrap empty repo via Contents API so the Git Data API works
@@ -193,7 +217,8 @@ try {
     'commitUrl' => "https://github.com/$owner/$repo/commit/" . $res['commit']['sha'],
     'branch' => $branch,
     'backedUp' => $backedUp,
-    'backupSha' => $backupSha, // pre-replace HEAD = this restore point
+    'backupSha' => $backupSha,        // pre-replace HEAD
+    'originalSaved' => $originalSaved, // true only on the first replace
   ]);
 } catch (Throwable $e) {
   http_response_code(500);

@@ -857,16 +857,16 @@
         (data.backedUp ? " (previous version backed up — reversible)" : " (repo was empty, nothing to back up)") +
         ". <a class='gh-link' target='_blank' rel='noopener' href='" + data.commitUrl + "'>View commit →</a>";
 
-      // Record this version as a restore point (snapshot) in shared history
-      if (data.backedUp && data.backupSha) {
+      // Record in shared history. The TRUE original is preserved server-side
+      // on the first replace, so Reverse always goes back to it.
+      if (data.backedUp) {
         let hist = normalizeHistory(await sbGetReplaceHistory());
         const key = repoUrl.toLowerCase() + '|' + branch;
         let entry = hist.find(h => (h.repo.toLowerCase() + '|' + h.branch) === key);
-        const snap = { sha: data.backupSha, ts: Date.now(), fileCount: data.fileCount };
-        if (entry) { entry.snapshots.push(snap); }
-        else { entry = { repo: repoUrl, branch, snapshots: [snap] }; hist.unshift(entry); }
+        if (entry) { entry.count = (entry.count || 1) + 1; entry.lastTs = Date.now(); }
+        else { entry = { repo: repoUrl, branch, firstTs: Date.now(), lastTs: Date.now(), count: 1 }; hist.unshift(entry); }
         await sbSaveReplaceHistory(hist);
-        renderReplaceHistory(hist);
+        await loadReplaceHistory();
       }
     } catch (err) {
       setRpStatus("Replace failed: " + (err.message || "unknown"), "err");
@@ -893,13 +893,14 @@
     const repoUrl = (rpRepoEl.value || "").trim();
     const branch = (rpBranchEl.value || "main").trim();
     if (!/github\.com[/:][^/]+\/[^/]+/i.test(repoUrl)) { setRpStatus("Enter a valid GitHub repo URL.", "err"); return; }
-    if (!confirm("Restore the previous (backed-up) version of " + repoUrl + " (" + branch + ")?")) return;
+    if (!confirm("Restore " + repoUrl + " (" + branch + ") back to the ORIGINAL website?\n\n(No matter how many times it was replaced, this goes back to the very first version.)")) return;
     rpReplaceBtn.disabled = true; rpReverseBtn.disabled = true;
-    setRpStatus("Restoring previous version…");
+    setRpStatus("Restoring to original website…");
     try {
-      const data = await restoreRepo(repoUrl, branch); // no sha = latest backup
+      const data = await restoreRepo(repoUrl, branch); // no sha = server restores the ORIGINAL
       rpStatusEl.className = "gh-status ok";
-      rpStatusEl.innerHTML = "Restored the previous version. <a class='gh-link' target='_blank' rel='noopener' href='" + data.commitUrl + "'>View commit →</a>";
+      rpStatusEl.innerHTML = "Restored to <strong>original</strong>" + (data.restoredFrom === 'backup' ? " (from last backup — original branch not found)" : "") +
+        ". <a class='gh-link' target='_blank' rel='noopener' href='" + data.commitUrl + "'>View commit →</a>";
       await loadReplaceHistory();
     } catch (err) {
       setRpStatus("Reverse failed: " + (err.message || "unknown"), "err");
@@ -915,66 +916,69 @@
   const rpReverseAllBtn = document.getElementById("rpReverseAllBtn");
 
   function esc(s) { return String(s ?? "").replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+  function repoShort(repo) { return repo.replace(/^https?:\/\/github\.com\//i, '').replace(/\.git$/, ''); }
+  function normRepo(u) { return (u || '').toLowerCase().replace(/\.git$/, '').replace(/\/$/, ''); }
 
-  // Convert old flat entries to the snapshots model
+  // Normalize any stored entry (old snapshot-model or flat) to the simple model.
   function normalizeHistory(list) {
     return (list || []).map(h => {
-      if (Array.isArray(h.snapshots)) return h;
-      return { repo: h.repo, branch: h.branch || 'main', snapshots: [{ sha: h.sha || null, ts: h.ts || Date.now(), fileCount: h.fileCount || 0 }] };
+      if (Array.isArray(h.snapshots)) {
+        return { repo: h.repo, branch: h.branch || 'main',
+                 firstTs: h.snapshots[0] && h.snapshots[0].ts || Date.now(),
+                 lastTs: h.snapshots[h.snapshots.length - 1] && h.snapshots[h.snapshots.length - 1].ts || Date.now(),
+                 count: h.snapshots.length };
+      }
+      return { repo: h.repo, branch: h.branch || 'main', firstTs: h.firstTs || h.ts || Date.now(), lastTs: h.lastTs || h.ts || Date.now(), count: h.count || 1 };
     });
   }
 
-  // Label a snapshot: oldest = Original, then Version 2, 3…
-  function snapLabel(i, total, snap) {
-    const when = snap.ts ? new Date(snap.ts).toLocaleString() : '';
-    if (i === 0) return `Original${when ? ' · ' + when : ''}`;
-    return `Version ${i + 1}${when ? ' · ' + when : ''}`;
+  // Hosting/region lookup — match each repo against live Amplify apps.
+  let _hostingMap = null;
+  async function getHostingMap() {
+    if (_hostingMap) return _hostingMap;
+    _hostingMap = {};
+    try {
+      const r = await fetch('deploy.php', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'list' }) });
+      const d = await r.json();
+      for (const a of (d.apps || [])) {
+        if (a.repository) _hostingMap[normRepo(a.repository)] = { platform: 'AWS Amplify', region: a.region };
+      }
+    } catch (e) { /* hosting info is best-effort */ }
+    return _hostingMap;
+  }
+  function hostingLabel(repo, hostMap) {
+    const h = hostMap[normRepo(repo)];
+    if (h) return `🌐 ${esc(h.platform)} · ${esc(h.region || '—')}`;
+    return `<span style="color:var(--muted)">not deployed (GitHub only)</span>`;
   }
 
-  function repoShort(repo) { return repo.replace(/^https?:\/\/github\.com\//i, '').replace(/\.git$/, ''); }
-
-  function renderReplaceHistory(rawList) {
+  function renderReplaceHistory(rawList, hostMap) {
     const list = normalizeHistory(rawList);
+    hostMap = hostMap || {};
     if (!list.length) {
-      rpHistList.innerHTML = '<div class="empty" style="padding:18px;">No replaces yet. When you replace a repo, it shows here so you can reverse it later.</div>';
+      rpHistList.innerHTML = '<div class="empty" style="padding:18px;">No replaces yet. When you replace a repo, it shows here so you can reverse it to the original anytime.</div>';
       rpReverseAllBtn.style.display = 'none';
       return;
     }
     rpReverseAllBtn.style.display = '';
-    rpHistList.innerHTML = list.map((h, idx) => {
-      const snaps = h.snapshots || [];
-      const multi = snaps.length > 1;
-      // version chooser (only when more than one restore point)
-      const options = snaps.map((s, i) => `<option value="${i}"${i === 0 ? ' selected' : ''}>${esc(snapLabel(i, snaps.length, s))}</option>`).join('');
-      const chooser = multi
-        ? `<select class="rp-ver" data-idx="${idx}" style="font-size:12px; padding:6px 8px; max-width:240px;">${options}</select>`
-        : '';
-      const latest = snaps[snaps.length - 1];
-      return `
+    rpHistList.innerHTML = list.map((h, idx) => `
       <div class="card" style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
-        <div style="flex:1; min-width:200px;">
+        <div style="flex:1; min-width:220px;">
           <div style="font-weight:600;">${esc(repoShort(h.repo))} <span style="color:var(--muted); font-weight:400;">· ${esc(h.branch)}</span></div>
-          <div style="font-size:12px; color:var(--muted);">${snaps.length} restore point${snaps.length === 1 ? '' : 's'} · last replace ${esc(latest && latest.ts ? new Date(latest.ts).toLocaleString() : '—')}</div>
+          <div style="font-size:12px; color:var(--muted);">${hostingLabel(h.repo, hostMap)} · replaced ${h.count}× · last ${esc(h.lastTs ? new Date(h.lastTs).toLocaleString() : '—')}</div>
         </div>
-        ${chooser}
-        <button class="ghost rp-rev-one" data-idx="${idx}" style="font-size:12px; padding:6px 12px;">↩ Reverse${multi ? ' to selected' : ''}</button>
-      </div>`;
-    }).join('');
+        <button class="ghost rp-rev-one" data-idx="${idx}" style="font-size:12px; padding:6px 12px;">↩ Reverse to original</button>
+      </div>`).join('');
 
     rpHistList.querySelectorAll('.rp-rev-one').forEach(btn => {
       btn.addEventListener('click', async () => {
-        const idx = +btn.dataset.idx;
-        const h = list[idx];
-        const sel = rpHistList.querySelector(`.rp-ver[data-idx="${idx}"]`);
-        const snapIdx = sel ? +sel.value : (h.snapshots.length - 1);
-        const snap = h.snapshots[snapIdx];
-        const label = snapLabel(snapIdx, h.snapshots.length, snap);
-        if (!confirm(`Restore ${repoShort(h.repo)} (${h.branch}) to "${label}"?`)) return;
+        const h = list[+btn.dataset.idx];
+        if (!confirm(`Restore ${repoShort(h.repo)} (${h.branch}) back to the ORIGINAL website?`)) return;
         btn.disabled = true; const old = btn.textContent; btn.textContent = '⏳…';
         try {
-          await restoreRepo(h.repo, h.branch, snap.sha);
+          const d = await restoreRepo(h.repo, h.branch); // no sha = ORIGINAL
           rpHistStatus.className = 'gh-status ok';
-          rpHistStatus.textContent = `Restored ${repoShort(h.repo)} → ${label}`;
+          rpHistStatus.textContent = `✓ ${repoShort(h.repo)} restored to original` + (d.restoredFrom === 'backup' ? ' (from last backup)' : '');
         } catch (e) {
           rpHistStatus.className = 'gh-status err'; rpHistStatus.textContent = 'Failed: ' + e.message;
         } finally { btn.disabled = false; btn.textContent = old; }
@@ -984,22 +988,21 @@
 
   async function loadReplaceHistory() {
     rpHistStatus.className = 'gh-status'; rpHistStatus.textContent = 'Loading…';
-    const list = await sbGetReplaceHistory();
-    renderReplaceHistory(list);
+    const [list, hostMap] = await Promise.all([sbGetReplaceHistory(), getHostingMap()]);
+    renderReplaceHistory(list, hostMap);
     rpHistStatus.textContent = '';
   }
 
-  rpHistRefresh.addEventListener('click', loadReplaceHistory);
+  rpHistRefresh.addEventListener('click', () => { _hostingMap = null; loadReplaceHistory(); });
   rpReverseAllBtn.addEventListener('click', async () => {
     const list = normalizeHistory(await sbGetReplaceHistory());
     if (!list.length) { rpHistStatus.textContent = 'Nothing to reverse.'; return; }
-    if (!confirm(`Reverse ALL ${list.length} repo(s) back to their ORIGINAL version?`)) return;
+    if (!confirm(`Reverse ALL ${list.length} repo(s) back to their ORIGINAL website?`)) return;
     rpReverseAllBtn.disabled = true;
     let ok = 0, fail = 0;
     for (const h of list) {
-      const original = h.snapshots[0]; // oldest = original
-      rpHistStatus.className = 'gh-status'; rpHistStatus.textContent = `Reversing ${repoShort(h.repo)} → Original…`;
-      try { await restoreRepo(h.repo, h.branch, original.sha); ok++; }
+      rpHistStatus.className = 'gh-status'; rpHistStatus.textContent = `Reversing ${repoShort(h.repo)} → original…`;
+      try { await restoreRepo(h.repo, h.branch); ok++; }   // no sha = ORIGINAL
       catch (e) { fail++; console.warn('reverse failed', h.repo, e); }
     }
     rpHistStatus.className = 'gh-status ' + (fail ? 'err' : 'ok');
