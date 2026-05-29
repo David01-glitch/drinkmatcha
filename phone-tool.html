@@ -639,9 +639,9 @@
 
   // Remove any existing Google tag markup from an HTML string.
   // Every pattern is "tempered" so a match can never cross out of the element it
-  // started in — i.e. (?:(?!</script\b)[\s\S])*? stops at the first closing tag.
-  // The old version used a plain [\s\S]*? which jumped across unrelated
-  // </script> boundaries and deleted the page's real scripts (broken downloads).
+  // started in: the negative-lookahead token stops at the first closing tag.
+  // The old version used a plain [\s\S]*? which jumped across unrelated script
+  // boundaries and deleted the page's real scripts (broken downloads).
   function stripGoogleTags(html) {
     let s = html;
     // tag comments
