@@ -919,36 +919,77 @@
   function repoShort(repo) { return repo.replace(/^https?:\/\/github\.com\//i, '').replace(/\.git$/, ''); }
   function normRepo(u) { return (u || '').toLowerCase().replace(/\.git$/, '').replace(/\/$/, ''); }
 
-  // Normalize any stored entry (old snapshot-model or flat) to the simple model.
+  // Normalize stored entries (old snapshot-model or flat) + DEDUPE by repo+branch.
   function normalizeHistory(list) {
-    return (list || []).map(h => {
+    const mapped = (list || []).map(h => {
       if (Array.isArray(h.snapshots)) {
         return { repo: h.repo, branch: h.branch || 'main',
-                 firstTs: h.snapshots[0] && h.snapshots[0].ts || Date.now(),
-                 lastTs: h.snapshots[h.snapshots.length - 1] && h.snapshots[h.snapshots.length - 1].ts || Date.now(),
+                 firstTs: (h.snapshots[0] && h.snapshots[0].ts) || Date.now(),
+                 lastTs: (h.snapshots[h.snapshots.length - 1] && h.snapshots[h.snapshots.length - 1].ts) || Date.now(),
                  count: h.snapshots.length };
       }
       return { repo: h.repo, branch: h.branch || 'main', firstTs: h.firstTs || h.ts || Date.now(), lastTs: h.lastTs || h.ts || Date.now(), count: h.count || 1 };
     });
+    const byKey = new Map();
+    for (const e of mapped) {
+      if (!e.repo) continue;
+      const k = e.repo.toLowerCase().replace(/\.git$/, '') + '|' + e.branch;
+      if (byKey.has(k)) {
+        const x = byKey.get(k);
+        x.count += e.count;
+        x.firstTs = Math.min(x.firstTs, e.firstTs);
+        x.lastTs = Math.max(x.lastTs, e.lastTs);
+      } else byKey.set(k, { ...e });
+    }
+    return [...byKey.values()].sort((a, b) => b.lastTs - a.lastTs);
   }
 
-  // Hosting/region lookup — match each repo against live Amplify apps.
+  // Hosting/region lookup. Source of truth = the dashboard's own records
+  // (Supabase 'websites'): they store github + website + platform + region.
+  // Amplify's API 'repository' field is empty for manual/zip deploys, so we
+  // can't rely on it alone — that caused "not deployed" false negatives.
   let _hostingMap = null;
   async function getHostingMap() {
     if (_hostingMap) return _hostingMap;
     _hostingMap = {};
+    // 1) Dashboard records — what's actually deployed
+    try {
+      const r = await fetch(SUPABASE_URL + '/rest/v1/websites?select=github,website,platform,appname,feedback', {
+        headers: { apikey: SUPABASE_KEY, Authorization: 'Bearer ' + SUPABASE_KEY }
+      });
+      const rows = await r.json();
+      for (const row of (rows || [])) {
+        const gh = (row.github || '').trim();
+        if (!gh) continue;
+        const isLive = !!(row.website || '').trim() || !!(row.appname || '').trim();
+        if (!isLive) continue;
+        _hostingMap[normRepo(gh)] = {
+          platform: row.platform || 'Other',
+          region: (row.feedback || '').trim(),   // country/region we store on deploy
+          website: (row.website || '').trim(),
+        };
+      }
+    } catch (e) { /* best-effort */ }
+    // 2) Amplify apps — fill in the exact region code where the repo is connected
     try {
       const r = await fetch('deploy.php', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'list' }) });
       const d = await r.json();
       for (const a of (d.apps || [])) {
-        if (a.repository) _hostingMap[normRepo(a.repository)] = { platform: 'AWS Amplify', region: a.region };
+        if (!a.repository) continue;
+        const k = normRepo(a.repository);
+        const ex = _hostingMap[k] || {};
+        _hostingMap[k] = { platform: 'AWS Amplify', region: a.region || ex.region || '', website: ex.website || (a.defaultDomain ? 'https://main.' + a.defaultDomain : '') };
       }
-    } catch (e) { /* hosting info is best-effort */ }
+    } catch (e) { /* best-effort */ }
     return _hostingMap;
   }
   function hostingLabel(repo, hostMap) {
     const h = hostMap[normRepo(repo)];
-    if (h) return `🌐 ${esc(h.platform)} · ${esc(h.region || '—')}`;
+    if (h && (h.website || h.region || h.platform)) {
+      const region = h.region ? ' · ' + esc(h.region) : '';
+      const link = h.website ? ` · <a href="${esc(h.website)}" target="_blank" rel="noopener">live ↗</a>` : '';
+      return `🌐 ${esc(h.platform || 'deployed')}${region}${link}`;
+    }
     return `<span style="color:var(--muted)">not deployed (GitHub only)</span>`;
   }
 
