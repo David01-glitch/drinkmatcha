@@ -1429,6 +1429,8 @@ async function showApp() {
   loadSharedRegionUsage();
   // Load shared archived-repos list (hidden from the Add Site picker)
   loadArchivedRepos();
+  // Reconcile: auto-archive homepage rows whose Amplify app no longer exists
+  reconcileWithAmplify();
   // Start polling live auto-deploy status for Amplify-hosted rows
   refreshAmplifyLiveStatuses();
   // Seed snapshot so first poll doesn't fire notifications for existing rows
@@ -1447,6 +1449,7 @@ async function showApp() {
 async function manualRefresh() {
   await load();
   render();
+  reconcileWithAmplify(); // archive rows whose Amplify app is gone
 }
 
 // ---------- DATA ----------
@@ -2052,6 +2055,57 @@ async function archiveRecord(r, reason) {
     r.notes.push({ type: 'note', text: '🗄 Auto-archived: ' + reason, author: (settings.author || 'System'), ts: Date.now() });
   }
   await persist(r);
+}
+
+// Reconcile homepage with reality: if an Amplify-hosted row's app no longer
+// exists (deleted in AWS or via the manager), auto-archive it so the homepage
+// only shows live sites. Conservative: only runs if the Amplify scan returned
+// apps (so a transient failure can't mass-archive live sites).
+let _reconciling = false;
+async function reconcileWithAmplify() {
+  if (_reconciling) return;
+  _reconciling = true;
+  try {
+    const res = await fetch('deploy.php', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'list' }),
+    });
+    const d = await res.json();
+    if (!res.ok || d.error) return;
+    const apps = d.apps || [];
+    if (!apps.length) return; // safety: empty scan → don't archive anything
+
+    // Live app identifiers (appId + the app-id portion of the default domain)
+    const liveIds = new Set();
+    for (const a of apps) {
+      if (a.appId) liveIds.add(a.appId.toLowerCase());
+      const dm = (a.defaultDomain || '').toLowerCase().match(/(d[a-z0-9]{8,})\.amplifyapp\.com/);
+      if (dm) liveIds.add(dm[1]);
+    }
+
+    let archived = 0;
+    for (const r of records) {
+      if (r.archived) continue;
+      const site = (r.website || '').toLowerCase();
+      const isAmplify = site.includes('amplifyapp.com') || (r.platform === 'AWS Amplify');
+      if (!isAmplify) continue; // leave other-hosting rows alone
+      // Determine this row's Amplify app id (from the URL subdomain, or appname)
+      let appId = '';
+      const m = site.match(/(d[a-z0-9]{8,})\.amplifyapp\.com/);
+      if (m) appId = m[1];
+      else if (/^d[a-z0-9]{8,}$/i.test((r.appname || '').trim())) appId = r.appname.trim().toLowerCase();
+      if (!appId) continue; // can't identify the app → don't risk archiving
+      if (!liveIds.has(appId)) {
+        await archiveRecord(r, 'Amplify app no longer exists (auto-reconciled)');
+        archived++;
+      }
+    }
+    if (archived) { await load(); render(); }
+  } catch (e) {
+    console.warn('reconcileWithAmplify failed (non-fatal):', e);
+  } finally {
+    _reconciling = false;
+  }
 }
 
 function shortUrl(u) {
