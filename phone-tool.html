@@ -917,7 +917,15 @@
 
   function esc(s) { return String(s ?? "").replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
   function repoShort(repo) { return repo.replace(/^https?:\/\/github\.com\//i, '').replace(/\.git$/, ''); }
-  function normRepo(u) { return (u || '').toLowerCase().replace(/\.git$/, '').replace(/\/$/, ''); }
+  // Normalize a repo URL to "github.com/owner/repo" so all forms match
+  // (with/without https://, www., .git, trailing slash, case).
+  function normRepo(u) {
+    return (u || '').toLowerCase().trim()
+      .replace(/^https?:\/\//, '')
+      .replace(/^www\./, '')
+      .replace(/\.git$/, '')
+      .replace(/\/$/, '');
+  }
 
   // Normalize stored entries (old snapshot-model or flat) + DEDUPE by repo+branch.
   function normalizeHistory(list) {
