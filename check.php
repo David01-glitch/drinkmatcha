@@ -278,24 +278,99 @@ if ($isSpa) {
 }
 
 // Platform detection from URL
-$host = parse_url($url, PHP_URL_HOST) ?? '';
+$host = strtolower(parse_url($url, PHP_URL_HOST) ?? '');
 $platform = 'Other';
 $appname = '';
-if (preg_match('/^([^.]+)\.herokuapp\.com$/i', $host, $hm)) {
-  $platform = 'Heroku';
-  $appname = $hm[1];
-} elseif (preg_match('/\.amplifyapp\.com$/i', $host)) {
-  $platform = 'AWS Amplify';
-  $parts = explode('.', $host);
-  $appname = $parts[0] ?? '';
-} elseif (preg_match('/\.vercel\.app$/i', $host)) {
-  $platform = 'Other';
-  $parts = explode('.', $host);
-  $appname = $parts[0] ?? '';
-} elseif (preg_match('/\.netlify\.app$/i', $host)) {
-  $platform = 'Other';
-  $parts = explode('.', $host);
-  $appname = $parts[0] ?? '';
+
+// Map of host suffix => platform label. First match wins.
+$platformMap = [
+  '/\.herokuapp\.com$/i'              => 'Heroku',
+  '/\.amplifyapp\.com$/i'             => 'AWS Amplify',
+  '/\.vercel\.app$/i'                 => 'Vercel',
+  '/\.netlify\.app$/i'                => 'Netlify',
+  '/\.netlify\.com$/i'                => 'Netlify',
+  '/\.onrender\.com$/i'               => 'Render',
+  '/\.pages\.dev$/i'                  => 'Cloudflare Pages',
+  '/\.workers\.dev$/i'                => 'Cloudflare Workers',
+  '/\.github\.io$/i'                  => 'GitHub Pages',
+  '/\.gitlab\.io$/i'                  => 'GitLab Pages',
+  '/\.firebaseapp\.com$/i'            => 'Firebase',
+  '/\.web\.app$/i'                    => 'Firebase',
+  '/\.fly\.dev$/i'                    => 'Fly.io',
+  '/\.up\.railway\.app$/i'            => 'Railway',
+  '/\.railway\.app$/i'                => 'Railway',
+  '/\.deno\.dev$/i'                   => 'Deno Deploy',
+  '/\.repl\.co$/i'                    => 'Replit',
+  '/\.replit\.dev$/i'                 => 'Replit',
+  '/\.surge\.sh$/i'                   => 'Surge',
+  '/\.glitch\.me$/i'                  => 'Glitch',
+  '/\.azurewebsites\.net$/i'          => 'Azure',
+  '/\.azurestaticapps\.net$/i'        => 'Azure Static Web Apps',
+  '/\.s3-website[.-][a-z0-9-]+\.amazonaws\.com$/i' => 'AWS S3',
+  '/\.s3\.amazonaws\.com$/i'          => 'AWS S3',
+  '/\.cloudfront\.net$/i'             => 'AWS CloudFront',
+  '/\.appspot\.com$/i'                => 'Google App Engine',
+  '/\.run\.app$/i'                    => 'Google Cloud Run',
+  '/\.wixsite\.com$/i'                => 'Wix',
+  '/\.wordpress\.com$/i'              => 'WordPress.com',
+  '/\.squarespace\.com$/i'            => 'Squarespace',
+  '/\.webflow\.io$/i'                 => 'Webflow',
+  '/\.shopify\.com$/i'                => 'Shopify',
+  '/\.myshopify\.com$/i'              => 'Shopify',
+  '/\.bigcartel\.com$/i'              => 'Big Cartel',
+  '/\.framer\.app$/i'                 => 'Framer',
+  '/\.framer\.website$/i'             => 'Framer',
+  '/\.notion\.site$/i'                => 'Notion',
+  '/\.bubbleapps\.io$/i'              => 'Bubble',
+];
+
+foreach ($platformMap as $pattern => $label) {
+  if (preg_match($pattern, $host)) {
+    $platform = $label;
+    $parts = explode('.', $host);
+    $appname = $parts[0] ?? '';
+    break;
+  }
+}
+
+// If still "Other", peek at response headers / HTML for fingerprints (custom domains)
+if ($platform === 'Other' && $html !== '') {
+  $headerFingerprints = [
+    'Vercel'           => '/(x-vercel-(id|cache)|server:\s*vercel)/i',
+    'Netlify'          => '/(x-nf-request-id|server:\s*netlify)/i',
+    'Cloudflare Pages' => '/cf-ray:|server:\s*cloudflare/i',
+    'GitHub Pages'     => '/server:\s*github\.com/i',
+    'Shopify'          => '/(x-shopify-stage|server:\s*shopifycloud)/i',
+    'WordPress'        => '/(x-powered-by:[^\n]*wordpress|wp-content)/i',
+    'Wix'              => '/(x-wix-request-id|server:\s*pepyaka)/i',
+    'Webflow'          => '/server:\s*webflow/i',
+    'Framer'           => '/server:\s*framer/i',
+  ];
+  // Fetch headers once if curl is available
+  if (function_exists('curl_init')) {
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+      CURLOPT_NOBODY => true,
+      CURLOPT_RETURNTRANSFER => true,
+      CURLOPT_HEADER => true,
+      CURLOPT_FOLLOWLOCATION => true,
+      CURLOPT_TIMEOUT => 6,
+      CURLOPT_CONNECTTIMEOUT => 4,
+      CURLOPT_USERAGENT => 'Mozilla/5.0 (compatible; MatchaDashboard/1.0)',
+      CURLOPT_SSL_VERIFYPEER => false,
+      CURLOPT_SSL_VERIFYHOST => false,
+    ]);
+    $headers = curl_exec($ch);
+    curl_close($ch);
+    $blob = ($headers ?: '') . "\n" . $html;
+    foreach ($headerFingerprints as $label => $regex) {
+      if (preg_match($regex, $blob)) {
+        $platform = $label;
+        $appname = explode('.', $host)[0] ?? '';
+        break;
+      }
+    }
+  }
 }
 
 // Cookie page Yes/No mirrors cookie banner detection

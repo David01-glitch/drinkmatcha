@@ -396,6 +396,21 @@
   }
   .pill.heroku { background: var(--accent-soft); color: var(--accent); border-color: rgba(123,211,137,0.25); }
   .pill.aws { background: var(--warn-soft); color: var(--warn); border-color: rgba(255,180,84,0.25); }
+  .pill.vercel { background: rgba(255,255,255,0.08); color: #fff; border-color: rgba(255,255,255,0.2); }
+  .pill.netlify { background: rgba(0,173,181,0.14); color: #4fd1d9; border-color: rgba(0,173,181,0.3); }
+  .pill.render { background: rgba(70,109,255,0.14); color: #8aa4ff; border-color: rgba(70,109,255,0.3); }
+  .pill.cloudflare { background: rgba(243,128,32,0.14); color: #f6a55c; border-color: rgba(243,128,32,0.3); }
+  .pill.github { background: rgba(255,255,255,0.06); color: #d9d9d9; border-color: rgba(255,255,255,0.18); }
+  .pill.firebase { background: rgba(255,159,28,0.14); color: #ffb454; border-color: rgba(255,159,28,0.3); }
+  .pill.fly { background: rgba(135,87,255,0.14); color: #b08cff; border-color: rgba(135,87,255,0.3); }
+  .pill.railway { background: rgba(127,80,237,0.14); color: #b08cff; border-color: rgba(127,80,237,0.3); }
+  .pill.azure { background: rgba(0,120,212,0.14); color: #6aa8ff; border-color: rgba(0,120,212,0.3); }
+  .pill.google { background: rgba(66,133,244,0.14); color: #6aa8ff; border-color: rgba(66,133,244,0.3); }
+  .pill.shopify { background: rgba(149,191,72,0.14); color: #b6db7e; border-color: rgba(149,191,72,0.3); }
+  .pill.wix { background: rgba(255,196,21,0.14); color: #ffd66b; border-color: rgba(255,196,21,0.3); }
+  .pill.wordpress { background: rgba(33,117,155,0.14); color: #6aa8ff; border-color: rgba(33,117,155,0.3); }
+  .pill.webflow { background: rgba(38,99,255,0.14); color: #8aa4ff; border-color: rgba(38,99,255,0.3); }
+  .pill.framer { background: rgba(0,153,255,0.14); color: #6aa8ff; border-color: rgba(0,153,255,0.3); }
   .pill.other { background: var(--purple-soft); color: var(--purple); border-color: rgba(176,140,255,0.25); }
   .pill.yes { background: var(--accent-soft); color: var(--accent); border-color: rgba(123,211,137,0.25); }
   .pill.no { background: var(--danger-soft); color: var(--danger); border-color: rgba(255,107,122,0.25); }
@@ -1119,6 +1134,36 @@
           <select id="f_platform">
             <option value="Heroku">Heroku</option>
             <option value="AWS Amplify">AWS Amplify</option>
+            <option value="Vercel">Vercel</option>
+            <option value="Netlify">Netlify</option>
+            <option value="Render">Render</option>
+            <option value="Cloudflare Pages">Cloudflare Pages</option>
+            <option value="Cloudflare Workers">Cloudflare Workers</option>
+            <option value="GitHub Pages">GitHub Pages</option>
+            <option value="GitLab Pages">GitLab Pages</option>
+            <option value="Firebase">Firebase</option>
+            <option value="Fly.io">Fly.io</option>
+            <option value="Railway">Railway</option>
+            <option value="Deno Deploy">Deno Deploy</option>
+            <option value="Replit">Replit</option>
+            <option value="Surge">Surge</option>
+            <option value="Glitch">Glitch</option>
+            <option value="Azure">Azure</option>
+            <option value="Azure Static Web Apps">Azure Static Web Apps</option>
+            <option value="AWS S3">AWS S3</option>
+            <option value="AWS CloudFront">AWS CloudFront</option>
+            <option value="Google App Engine">Google App Engine</option>
+            <option value="Google Cloud Run">Google Cloud Run</option>
+            <option value="Shopify">Shopify</option>
+            <option value="WordPress">WordPress</option>
+            <option value="WordPress.com">WordPress.com</option>
+            <option value="Wix">Wix</option>
+            <option value="Squarespace">Squarespace</option>
+            <option value="Webflow">Webflow</option>
+            <option value="Framer">Framer</option>
+            <option value="Notion">Notion</option>
+            <option value="Bubble">Bubble</option>
+            <option value="Big Cartel">Big Cartel</option>
             <option value="Other">Other</option>
           </select>
         </div>
@@ -1873,7 +1918,23 @@ function render() {
       'Live':'status-live', 'used-h':'status-used-h', 'Rejected':'status-rejected', 'Draft':'status-draft'
     })[r.status] || 'status-draft';
 
-    const platformPill = r.platform === 'Heroku' ? 'heroku' : (r.platform === 'AWS Amplify' ? 'aws' : 'other');
+    const platformPill = (function(p){
+      const map = {
+        'Heroku':'heroku', 'AWS Amplify':'aws',
+        'Vercel':'vercel', 'Netlify':'netlify', 'Render':'render',
+        'Cloudflare Pages':'cloudflare', 'Cloudflare Workers':'cloudflare',
+        'GitHub Pages':'github', 'GitLab Pages':'github',
+        'Firebase':'firebase', 'Fly.io':'fly', 'Railway':'railway',
+        'Deno Deploy':'other', 'Replit':'other', 'Surge':'other', 'Glitch':'other',
+        'Azure':'azure', 'Azure Static Web Apps':'azure',
+        'AWS S3':'aws', 'AWS CloudFront':'aws',
+        'Google App Engine':'google', 'Google Cloud Run':'google',
+        'Shopify':'shopify', 'WordPress':'wordpress', 'WordPress.com':'wordpress',
+        'Wix':'wix', 'Squarespace':'other', 'Webflow':'webflow', 'Framer':'framer',
+        'Notion':'other', 'Bubble':'other', 'Big Cartel':'other'
+      };
+      return map[p] || 'other';
+    })(r.platform);
 
     const uNotes = userNotes(r);
     const cNotes = changeNotes(r);
