@@ -375,6 +375,137 @@
   @keyframes termFlicker { 0%,96%,100% { opacity: 1; } 97% { opacity: 0.85; } 98% { opacity: 0.97; } }
   @keyframes stepPulse { 0%,100% { text-shadow: 0 0 4px rgba(93,255,160,0.4);} 50% { text-shadow: 0 0 10px rgba(93,255,160,0.9);} }
   @keyframes termShake { 0%,100%{transform:translateX(0);} 25%{transform:translateX(-4px);} 75%{transform:translateX(4px);} }
+
+  /* ===== Deploy terminal v2: pills, thrust, shimmer, hint, confetti, responsive ===== */
+  .deploy-term { font-size: clamp(11px, 1.6vw, 13px); }
+  .deploy-term .dt-line { display: block; }
+  .deploy-term .dt-headline { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+  .deploy-term .dt-headline strong { letter-spacing: 0.06em; }
+  /* Rocket + thrust */
+  .deploy-term .dt-rocket-wrap { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; }
+  .deploy-term .dt-thrust {
+    position: absolute; left: 50%; bottom: -2px; transform: translateX(-50%);
+    width: 6px; height: 6px; border-radius: 50%;
+    background: radial-gradient(circle, #ffd66b 0%, rgba(255,140,40,0.85) 45%, rgba(255,60,20,0) 75%);
+    filter: blur(0.5px);
+    animation: thrustPulse 0.55s ease-in-out infinite;
+    pointer-events: none;
+  }
+  @keyframes thrustPulse {
+    0%,100% { opacity: 0.55; transform: translateX(-50%) scale(0.85); }
+    50%     { opacity: 1;    transform: translateX(-50%) scale(1.25); }
+  }
+  /* Step pills */
+  .deploy-term .dt-steps { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; margin-top: 4px; }
+  .deploy-term .dt-step {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 9px; border-radius: 999px;
+    background: rgba(93,255,160,0.06);
+    border: 1px solid rgba(93,255,160,0.18);
+    font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase;
+    transition: transform 0.25s ease, background 0.25s ease, border-color 0.25s ease;
+    animation: stepIn 0.35s cubic-bezier(.34,1.56,.64,1);
+  }
+  .deploy-term .dt-step.active {
+    background: rgba(93,255,160,0.16);
+    border-color: rgba(93,255,160,0.55);
+    box-shadow: 0 0 14px rgba(93,255,160,0.35), inset 0 0 8px rgba(93,255,160,0.18);
+    animation: stepIn 0.35s cubic-bezier(.34,1.56,.64,1), stepGlow 1.4s ease-in-out infinite;
+  }
+  .deploy-term .dt-step.done {
+    background: rgba(52,208,88,0.14);
+    border-color: rgba(52,208,88,0.45);
+    color: #b6ffd0;
+  }
+  .deploy-term .dt-step .dt-check {
+    display: inline-block; width: 10px; height: 10px; position: relative;
+    opacity: 0; transform: scale(0.6);
+    transition: opacity 0.3s ease 0.05s, transform 0.3s cubic-bezier(.34,1.56,.64,1) 0.05s;
+  }
+  .deploy-term .dt-step.done .dt-check { opacity: 1; transform: scale(1); }
+  .deploy-term .dt-step .dt-check::before {
+    content: ""; position: absolute; left: 1px; top: 4px; width: 3px; height: 6px;
+    border-right: 2px solid #5dffa0; border-bottom: 2px solid #5dffa0;
+    transform: rotate(45deg);
+  }
+  .deploy-term .dt-step-sep { opacity: 0.35; font-size: 10px; }
+  @keyframes stepIn { from { opacity: 0; transform: translateY(2px) scale(0.94); } to { opacity: 1; transform: translateY(0) scale(1); } }
+  @keyframes stepGlow {
+    0%,100% { box-shadow: 0 0 10px rgba(93,255,160,0.25), inset 0 0 6px rgba(93,255,160,0.12); }
+    50%     { box-shadow: 0 0 22px rgba(93,255,160,0.55), inset 0 0 12px rgba(93,255,160,0.28); }
+  }
+  /* Shimmering bar overlay */
+  .deploy-term .dt-bar::after {
+    content: ""; position: absolute; top: 0; left: -50%; width: 50%; height: 100%;
+    background: linear-gradient(110deg, transparent 30%, rgba(255,255,255,0.22) 50%, transparent 70%);
+    animation: barShimmer 2.2s linear infinite;
+    pointer-events: none;
+  }
+  @keyframes barShimmer { 0% { left: -60%; } 100% { left: 120%; } }
+  /* Cycling live hint line */
+  .deploy-term .dt-hint {
+    margin-top: 6px; font-size: 11px; opacity: 0.82;
+    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+    min-height: 1.4em;
+  }
+  .deploy-term .dt-hint-text {
+    display: inline-block;
+    animation: hintFade 0.45s ease;
+    max-width: 100%; overflow: hidden; text-overflow: ellipsis;
+  }
+  @keyframes hintFade { from { opacity: 0; transform: translateY(2px); } to { opacity: 0.82; transform: translateY(0); } }
+  /* Confetti on success */
+  .deploy-term .dt-confetti {
+    position: absolute; inset: 0; pointer-events: none; overflow: hidden; z-index: 2;
+  }
+  .deploy-term .dt-confetti span {
+    position: absolute; left: 50%; top: 50%;
+    width: 6px; height: 10px; border-radius: 1px;
+    transform: translate(-50%,-50%);
+    animation: confettiFly 1.4s cubic-bezier(.2,.6,.3,1) forwards;
+  }
+  @keyframes confettiFly {
+    0%   { opacity: 1; transform: translate(-50%,-50%) rotate(0deg); }
+    100% { opacity: 0; transform: translate(calc(-50% + var(--x, 0px)), calc(-50% + var(--y, 0px))) rotate(var(--r, 540deg)); }
+  }
+  .deploy-term.success { animation: successFlash 0.9s ease-out; }
+  @keyframes successFlash {
+    0%   { box-shadow: 0 0 0 rgba(52,208,88,0); }
+    35%  { box-shadow: 0 0 28px rgba(52,208,88,0.75), inset 0 0 30px rgba(52,208,88,0.32); }
+    100% { box-shadow: inset 0 0 30px rgba(52,208,88,0.18); }
+  }
+  /* Responsive */
+  @media (max-width: 520px) {
+    .deploy-term { padding: 9px 10px; line-height: 1.6; }
+    .deploy-term .dt-headline { gap: 6px; }
+    .deploy-term .dt-steps { gap: 4px 6px; }
+    .deploy-term .dt-step { padding: 1px 7px; font-size: 10px; }
+  }
+  @media (max-width: 360px) {
+    .deploy-term .dt-steps {
+      flex-wrap: nowrap; overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      padding-bottom: 4px;
+      scrollbar-width: none;
+    }
+    .deploy-term .dt-steps::-webkit-scrollbar { display: none; }
+    .deploy-term .dt-step { flex: 0 0 auto; }
+  }
+  /* Respect prefers-reduced-motion */
+  @media (prefers-reduced-motion: reduce) {
+    .deploy-term,
+    .deploy-term::before,
+    .deploy-term::after,
+    .deploy-term .dt-rocket,
+    .deploy-term .dt-thrust,
+    .deploy-term .dt-step,
+    .deploy-term .dt-step.active,
+    .deploy-term .dt-bar > i,
+    .deploy-term .dt-bar::after,
+    .deploy-term .dt-confetti span { animation: none !important; }
+    .deploy-term .dt-cursor { animation: blink 1s steps(2) infinite; } /* keep the gentle blink */
+  }
+
   .last-edit {
     font-size: 10px; color: var(--muted-2); margin-top: 3px; font-weight: 400;
     display: block;
@@ -1122,7 +1253,7 @@
           <button class="btn primary" type="button" onclick="deployToAmplify()" id="amplifyBtn">🚀 Deploy to AWS Amplify</button>
           <button class="btn" type="button" onclick="deleteFromAmplify()" id="amplifyDeleteBtn" style="background:var(--danger,#ef4444); color:#fff;">🗑 Delete Amplify app</button>
         </div>
-        <div id="amplifyStatus" style="font-size:12px; color:var(--muted); margin-top:6px;"></div>
+        <div id="amplifyStatus" aria-live="polite" aria-atomic="false" style="font-size:12px; color:var(--muted); margin-top:6px;"></div>
       </div>
       <div class="grid-2">
         <div class="field">
@@ -3217,13 +3348,59 @@ async function pollAmplifyJob({ appId, region, branch, jobId, url, consoleUrl })
   // Continuous timer (keeps the elapsed counter ticking between AWS pings)
   let timerId = null;
   let phase = 'building'; // 'building' | 'verifying'
-  // Render the step trail with the active step pulsing
+  // Render the step trail with the active step pulsing (now as pills with check swipe)
   function stepTrailHtml() {
     if (!lastStepLine) return '';
-    return lastStepLine.split(' → ').map(s => {
+    const parts = lastStepLine.split(' → ');
+    const pills = parts.map(s => {
       const cls = s.includes('⏳') ? 'dt-step active' : (s.includes('✓') ? 'dt-step done' : 'dt-step');
-      return `<span class="${cls}">${escapeHtml(s)}</span>`;
-    }).join(' <span style="opacity:.4">→</span> ');
+      const label = s.replace(/[⏳✓]/g, '').trim();
+      return `<span class="${cls}"><span class="dt-check" aria-hidden="true"></span>${escapeHtml(label)}</span>`;
+    });
+    return `<span class="dt-steps">${pills.join('<span class="dt-step-sep">→</span>')}</span>`;
+  }
+  // Cycling hint line — pure cosmetic, doesn't claim real progress
+  const BUILD_HINTS = [
+    '> Provisioning runner…',
+    '> Cloning repository from GitHub…',
+    '> Installing dependencies…',
+    '> Running build…',
+    '> Uploading build artifact…',
+    '> Distributing to CDN edges…',
+  ];
+  const VERIFY_HINTS = [
+    '> Waiting for HTTP 200 from the edge…',
+    '> Propagating DNS to the edge…',
+    '> Warming up CDN caches…',
+  ];
+  let hintIdx = 0;
+  function currentHint() {
+    const list = (phase === 'verifying') ? VERIFY_HINTS : BUILD_HINTS;
+    return list[hintIdx % list.length];
+  }
+  // Advance hint every ~2.5s
+  let hintTimer = setInterval(() => { hintIdx++; tick(); }, 2500);
+  // Burst tiny confetti particles inside the panel on success
+  function confettiBurst(host) {
+    try {
+      if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+      const wrap = document.createElement('div');
+      wrap.className = 'dt-confetti';
+      const colors = ['#5dffa0', '#7fd0ff', '#ffd66b', '#ff8ab0', '#b08cff'];
+      for (let i = 0; i < 14; i++) {
+        const s = document.createElement('span');
+        const ang = Math.random() * Math.PI * 2;
+        const dist = 70 + Math.random() * 60;
+        s.style.setProperty('--x', Math.cos(ang) * dist + 'px');
+        s.style.setProperty('--y', Math.sin(ang) * dist + 'px');
+        s.style.setProperty('--r', (360 + Math.random() * 540) + 'deg');
+        s.style.background = colors[i % colors.length];
+        s.style.animationDelay = (Math.random() * 0.12) + 's';
+        wrap.appendChild(s);
+      }
+      host.appendChild(wrap);
+      setTimeout(() => { if (wrap.parentNode) wrap.parentNode.removeChild(wrap); }, 1800);
+    } catch (e) {}
   }
   function tick() {
     if (!document.body.contains(status)) { clearInterval(timerId); return; }
@@ -3232,16 +3409,16 @@ async function pollAmplifyJob({ appId, region, branch, jobId, url, consoleUrl })
     status.style.color = '';
     if (phase === 'building') {
       status.innerHTML =
-        `<div class="dt-line"><span class="dt-rocket">🚀</span> <strong>${escapeHtml(currentAwsStatus || 'STARTING')}</strong> · t+${el}<span class="dt-cursor">&nbsp;</span></div>` +
+        `<div class="dt-line dt-headline"><span class="dt-rocket-wrap"><span class="dt-rocket">🚀</span><span class="dt-thrust" aria-hidden="true"></span></span> <strong>${escapeHtml(currentAwsStatus || 'STARTING')}</strong> · t+${el}<span class="dt-cursor">&nbsp;</span></div>` +
         `<div class="dt-line" style="margin-top:4px;">${stepTrailHtml()}</div>` +
         `<div class="dt-bar"><i></i></div>` +
-        `<div class="dt-line" style="margin-top:6px; font-size:11px; opacity:.8;">&gt; building from GitHub… <a href="${escapeAttr(consoleUrl)}" target="_blank" rel="noopener">[ watch in AWS console ]</a></div>`;
+        `<div class="dt-hint"><span class="dt-hint-text" key="${hintIdx}">${escapeHtml(currentHint())}</span> <a href="${escapeAttr(consoleUrl)}" target="_blank" rel="noopener">[ watch in AWS console ]</a></div>`;
     } else if (phase === 'verifying') {
       status.innerHTML =
-        `<div class="dt-line">🛰  <strong>BUILD OK</strong> in ${escapeHtml(fmtElapsed(buildEndedAt - startedAt))} · pinging site… t+${el}<span class="dt-cursor">&nbsp;</span></div>` +
+        `<div class="dt-line dt-headline">🛰 <strong>BUILD OK</strong> in ${escapeHtml(fmtElapsed(buildEndedAt - startedAt))} · pinging site… t+${el}<span class="dt-cursor">&nbsp;</span></div>` +
         `<div class="dt-line" style="margin-top:4px;">${stepTrailHtml()}</div>` +
         `<div class="dt-bar"><i></i></div>` +
-        `<div class="dt-line" style="margin-top:6px; font-size:11px; opacity:.8;">&gt; waiting for HTTP 200 from the edge…</div>`;
+        `<div class="dt-hint"><span class="dt-hint-text" key="${hintIdx}">${escapeHtml(currentHint())}</span></div>`;
     }
   }
   let currentAwsStatus = 'PENDING';
@@ -3289,6 +3466,7 @@ async function pollAmplifyJob({ appId, region, branch, jobId, url, consoleUrl })
   // ---- Build FAILED / CANCELLED ----
   if (finalAwsStatus && finalAwsStatus !== 'SUCCEED') {
     clearInterval(timerId);
+    clearInterval(hintTimer);
     const reason = (failedStep && failedStep.statusReason) || statusUpdateReason || '(no reason returned by AWS)';
     const logUrl = failedStep && failedStep.logUrl ? failedStep.logUrl : null;
     const total = fmtElapsed(buildEndedAt - startedAt);
@@ -3305,6 +3483,7 @@ async function pollAmplifyJob({ appId, region, branch, jobId, url, consoleUrl })
   // ---- Build timed out before any terminal status ----
   if (!finalAwsStatus) {
     clearInterval(timerId);
+    clearInterval(hintTimer);
     status.className = 'deploy-term';
     status.innerHTML = `<div class="dt-line">⌛ Still building after 10 min. <a href="${escapeAttr(consoleUrl)}" target="_blank" rel="noopener">Check AWS console</a>.</div>`;
     return;
@@ -3317,19 +3496,22 @@ async function pollAmplifyJob({ appId, region, branch, jobId, url, consoleUrl })
   while (Date.now() - verifyStartedAt < MAX_VERIFY_MS) {
     if (await urlIsLive(url)) {
       clearInterval(timerId);
+      clearInterval(hintTimer);
       const totalMs = Date.now() - startedAt;
       status.className = 'deploy-term success';
       status.style.color = '';
       status.innerHTML =
-        `<div class="dt-line">✅ <strong>DEPLOYED</strong> in ${escapeHtml(fmtElapsed(totalMs))} 🎉</div>` +
+        `<div class="dt-line dt-headline">✅ <strong>DEPLOYED</strong> in ${escapeHtml(fmtElapsed(totalMs))} 🎉</div>` +
         `<div class="dt-line" style="margin-top:4px;">&gt; live at <a href="${escapeAttr(url)}" target="_blank" rel="noopener">${escapeHtml(url)}</a></div>` +
         `<div class="dt-line" style="margin-top:4px; opacity:.8;">${stepTrailHtml()} · <a href="${escapeAttr(consoleUrl)}" target="_blank" rel="noopener">AWS console</a></div>`;
+      confettiBurst(status);
       return;
     }
     await new Promise(r => setTimeout(r, VERIFY_INTERVAL_MS));
   }
   // Verification timed out
   clearInterval(timerId);
+  clearInterval(hintTimer);
   status.className = 'deploy-term';
   status.innerHTML = `<div class="dt-line">⚠ AWS says SUCCEED but no HTTP 200 yet (3 min). It may still come up. <a href="${escapeAttr(url)}" target="_blank" rel="noopener">Try opening it ↗</a></div>`;
 }
